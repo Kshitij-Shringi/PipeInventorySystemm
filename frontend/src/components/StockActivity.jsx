@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Package, Loader2, Calendar, X, ChevronLeft, ChevronRight } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { fetchStockActivity, getErrorMessage } from '../api';
 import { useToast } from './Toast';
 import { formatDimensions, formatNumber } from '../utils/format';
@@ -57,9 +58,18 @@ export default function StockActivity({ refreshTrigger }) {
   }
 
   return (
-    <div>
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.5, ease: [0.23, 1, 0.32, 1] }}
+    >
       {/* Date Filter Section */}
-      <div className="mb-4 p-4 rounded-lg border border-border bg-surface-elevated/30">
+      <motion.div
+        initial={{ opacity: 0, y: -20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4, delay: 0.1 }}
+        className="mb-4 p-4 rounded-lg border border-border bg-surface-elevated/30"
+      >
         <div className="flex flex-wrap items-end gap-3">
           <div className="flex-1 min-w-[200px]">
             <label className="block text-xs font-sans font-semibold text-muted uppercase tracking-wider mb-2">
@@ -95,7 +105,7 @@ export default function StockActivity({ refreshTrigger }) {
             )}
           </div>
         </div>
-      </div>
+      </motion.div>
 
       <div className="mb-4 flex items-center justify-between">
         <span className="text-sm font-sans text-muted">
@@ -109,11 +119,17 @@ export default function StockActivity({ refreshTrigger }) {
         )}
       </div>
       <div className="space-y-4">
-        {activities.map((activity) => (
-          <div
-            key={activity.id}
-            className="rounded-lg border border-border bg-surface-elevated/30 p-4 hover:bg-surface-elevated/50 transition-colors"
-          >
+        <AnimatePresence>
+          {activities.map((activity, index) => (
+            <motion.div
+              key={activity.id}
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+              transition={{ duration: 0.4, delay: index * 0.05 }}
+              whileHover={{ scale: 1.01, y: -2 }}
+              className="rounded-lg border border-border/50 bg-gradient-to-br from-surface-elevated/80 to-surface-elevated/50 p-4 backdrop-blur-sm shadow-lg"
+            >
             <div className="flex items-start justify-between mb-3">
               <div>
                 <p className="font-sans font-semibold text-white">{activity.from_supplier}</p>
@@ -121,9 +137,12 @@ export default function StockActivity({ refreshTrigger }) {
                   {activity.created_at ? new Date(activity.created_at).toLocaleString() : '—'}
                 </p>
               </div>
-              <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-sans font-medium bg-accent/20 text-accent">
+              <motion.span
+                whileHover={{ scale: 1.05 }}
+                className="inline-flex items-center px-3 py-1 rounded-full text-xs font-sans font-medium bg-accent/20 text-accent"
+              >
                 {formatNumber(activity.total_quantity)} total pipes
-              </span>
+              </motion.span>
             </div>
             <div className="space-y-2">
               {activity.pipes?.map((pipe, idx) => (
@@ -139,32 +158,49 @@ export default function StockActivity({ refreshTrigger }) {
                 </div>
               ))}
             </div>
-          </div>
+          </motion.div>
         ))}
+        </AnimatePresence>
       </div>
       {activities.length === 0 && (
-        <div className="flex flex-col items-center justify-center py-16 text-center">
-          <div className="w-16 h-16 rounded-full bg-white/5 flex items-center justify-center mb-4">
+        <motion.div
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ duration: 0.4 }}
+          className="flex flex-col items-center justify-center py-16 text-center"
+        >
+          <motion.div
+            animate={{ y: [0, -10, 0] }}
+            transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
+            className="w-16 h-16 rounded-full bg-white/5 flex items-center justify-center mb-4"
+          >
             <Package className="w-8 h-8 text-muted" />
-          </div>
+          </motion.div>
           <p className="font-sans text-muted">No stock additions found.</p>
           <p className="font-sans text-sm text-muted/80 mt-1">
             {startDate || endDate ? 'Try adjusting your date filter.' : 'Add stock to see activity here.'}
           </p>
-        </div>
+        </motion.div>
       )}
 
       {/* Pagination Controls */}
       {totalPages > 1 && (
-        <div className="mt-6 flex items-center justify-center gap-2">
-          <button
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.3 }}
+          className="mt-6 flex items-center justify-center gap-2"
+        >
+          <motion.button
+            whileHover={{ scale: 1.05, x: -2 }}
+            whileTap={{ scale: 0.95 }}
             onClick={() => setPage((p) => Math.max(1, p - 1))}
             disabled={page === 1}
             className="px-3 py-2 rounded-lg bg-surface border border-border text-muted hover:text-white hover:bg-surface-elevated disabled:opacity-50 disabled:cursor-not-allowed transition-colors inline-flex items-center gap-1"
           >
             <ChevronLeft size={16} />
             Previous
-          </button>
+          </motion.button>
           
           <div className="flex items-center gap-1">
             {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
@@ -180,31 +216,35 @@ export default function StockActivity({ refreshTrigger }) {
               }
               
               return (
-                <button
+                <motion.button
                   key={pageNum}
+                  whileHover={{ scale: 1.1 }}
+                  whileTap={{ scale: 0.9 }}
                   onClick={() => setPage(pageNum)}
-                  className={`px-3 py-2 rounded-lg font-sans font-semibold text-sm transition-colors ${
+                  className={`px-3 py-2 rounded-lg font-sans font-semibold text-sm transition-all duration-200 ${
                     page === pageNum
                       ? 'bg-accent text-[#0f1117]'
                       : 'bg-surface border border-border text-muted hover:text-white hover:bg-surface-elevated'
                   }`}
                 >
                   {pageNum}
-                </button>
+                </motion.button>
               );
             })}
           </div>
 
-          <button
+          <motion.button
+            whileHover={{ scale: 1.05, x: 2 }}
+            whileTap={{ scale: 0.95 }}
             onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
             disabled={page === totalPages}
             className="px-3 py-2 rounded-lg bg-surface border border-border text-muted hover:text-white hover:bg-surface-elevated disabled:opacity-50 disabled:cursor-not-allowed transition-colors inline-flex items-center gap-1"
           >
             Next
             <ChevronRight size={16} />
-          </button>
-        </div>
+          </motion.button>
+        </motion.div>
       )}
-    </div>
+    </motion.div>
   );
 }

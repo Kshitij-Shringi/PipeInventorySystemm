@@ -22,7 +22,7 @@ export default function OrderSummary({ result, onBackToInventory }) {
   return (
     <div className="p-8 max-w-3xl mx-auto">
       <div className="card overflow-visible">
-        <div className="px-8 py-10 text-center border-b border-border bg-gradient-to-b from-surface-elevated/80 to-surface">
+        <div className="px-8 py-10 text-center border-b border-border bg-surface-elevated/80">
           <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-success/20 text-success font-sans font-semibold text-sm mb-5 shadow-glow-accent">
             <CheckCircle size={20} />
             Order complete

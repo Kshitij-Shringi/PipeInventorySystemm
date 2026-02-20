@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { ClipboardList, Loader2, Package, Trash2, RotateCcw, ChevronDown, ChevronRight, ChevronLeft, Calendar, X } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { fetchOrders, getErrorMessage } from '../api';
 import { useToast } from './Toast';
 import { formatNumber, formatDimensions, formatDimensionsString } from '../utils/format';
@@ -71,9 +72,18 @@ export default function OrderHistory({ refreshTrigger }) {
   }
 
   return (
-    <div>
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.5, ease: [0.23, 1, 0.32, 1] }}
+    >
       {/* Date Filter Section */}
-      <div className="mb-4 p-4 rounded-lg border border-border bg-surface-elevated/30">
+      <motion.div
+        initial={{ opacity: 0, y: -20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4, delay: 0.1 }}
+        className="mb-4 p-4 rounded-lg border border-border bg-surface-elevated/30"
+      >
         <div className="flex flex-wrap items-end gap-3">
           <div className="flex-1 min-w-[200px]">
             <label className="block text-xs font-sans font-semibold text-muted uppercase tracking-wider mb-2">
@@ -109,7 +119,7 @@ export default function OrderHistory({ refreshTrigger }) {
             )}
           </div>
         </div>
-      </div>
+      </motion.div>
 
       <div className="mb-4 flex items-center justify-between">
         <span className="text-sm font-sans text-muted">
@@ -123,11 +133,17 @@ export default function OrderHistory({ refreshTrigger }) {
         )}
       </div>
       <div className="space-y-4">
-        {orders.map((order) => (
-          <div
-            key={order.id}
-            className="rounded-lg border border-border bg-surface-elevated/30 p-5 hover:bg-surface-elevated/50 transition-colors"
-          >
+        <AnimatePresence>
+          {orders.map((order, index) => (
+            <motion.div
+              key={order.id}
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+              transition={{ duration: 0.4, delay: index * 0.05 }}
+              whileHover={{ scale: 1.01, y: -2 }}
+              className="rounded-lg border border-border bg-surface-elevated/30 p-5 hover:bg-surface-elevated/50 transition-colors"
+            >
             <div className="flex items-start justify-between mb-4">
               <div className="flex-1">
                 <p className="font-sans font-bold text-lg text-white mb-1">{order.recipient}</p>
@@ -135,39 +151,60 @@ export default function OrderHistory({ refreshTrigger }) {
                   {order.created_at ? new Date(order.created_at).toLocaleString() : '—'}
                 </p>
               </div>
-              <div className="flex flex-wrap gap-2">
-                <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent/20 text-accent text-sm font-sans font-semibold">
+              <motion.div
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: 0.2 }}
+                className="flex flex-wrap gap-2"
+              >
+                <motion.span
+                  whileHover={{ scale: 1.05 }}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent/20 text-accent text-sm font-sans font-semibold"
+                >
                   <Package size={16} />
                   {formatNumber(order.summary?.pipes_consumed ?? 0)} consumed
-                </span>
-                <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-success/15 text-success text-sm font-sans font-semibold">
+                </motion.span>
+                <motion.span
+                  whileHover={{ scale: 1.05 }}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-success/15 text-success text-sm font-sans font-semibold"
+                >
                   <RotateCcw size={16} />
                   {formatNumber(order.summary?.returned_to_stock ?? 0)} returned
-                </span>
-                <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-danger/15 text-danger text-sm font-sans font-semibold">
+                </motion.span>
+                <motion.span
+                  whileHover={{ scale: 1.05 }}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-danger/15 text-danger text-sm font-sans font-semibold"
+                >
                   <Trash2 size={16} />
                   {formatNumber(order.summary?.discarded ?? 0)} discarded
-                </span>
-              </div>
+                </motion.span>
+              </motion.div>
             </div>
 
             {/* Pipes Used Section */}
             {order.analysis && order.analysis.length > 0 ? (
               <div className="mt-4 pt-4 border-t border-border">
-                <button
+                <motion.button
                   type="button"
                   onClick={() => toggleOrderExpanded(order.id)}
+                  whileHover={{ x: 5 }}
+                  whileTap={{ scale: 0.98 }}
                   className="flex items-center gap-2 w-full text-left mb-3 hover:text-accent transition-colors"
                 >
-                  {expandedOrders.has(order.id) ? (
-                    <ChevronDown size={16} className="text-muted" />
-                  ) : (
-                    <ChevronRight size={16} className="text-muted" />
-                  )}
+                  <motion.div
+                    animate={{ rotate: expandedOrders.has(order.id) ? 90 : 0 }}
+                    transition={{ duration: 0.2 }}
+                  >
+                    {expandedOrders.has(order.id) ? (
+                      <ChevronDown size={16} className="text-muted" />
+                    ) : (
+                      <ChevronRight size={16} className="text-muted" />
+                    )}
+                  </motion.div>
                   <p className="text-xs font-sans font-semibold text-muted uppercase tracking-wider">
                     How Pipes Were Used
                   </p>
-                </button>
+                </motion.button>
                 {expandedOrders.has(order.id) && (
                   <div className="space-y-6 pl-6">
                     {order.analysis.map((block, blockIdx) => (
@@ -292,32 +329,49 @@ export default function OrderHistory({ refreshTrigger }) {
                 </div>
               </div>
             )}
-          </div>
+          </motion.div>
         ))}
+        </AnimatePresence>
       </div>
       {orders.length === 0 && (
-        <div className="flex flex-col items-center justify-center py-16 text-center">
-          <div className="w-16 h-16 rounded-full bg-white/5 flex items-center justify-center mb-4">
+        <motion.div
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ duration: 0.4 }}
+          className="flex flex-col items-center justify-center py-16 text-center"
+        >
+          <motion.div
+            animate={{ y: [0, -10, 0] }}
+            transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
+            className="w-16 h-16 rounded-full bg-white/5 flex items-center justify-center mb-4"
+          >
             <ClipboardList className="w-8 h-8 text-muted" />
-          </div>
+          </motion.div>
           <p className="font-sans text-muted">No orders found.</p>
           <p className="font-sans text-sm text-muted/80 mt-1">
             {startDate || endDate ? 'Try adjusting your date filter.' : 'Publish an order to see it here.'}
           </p>
-        </div>
+        </motion.div>
       )}
 
       {/* Pagination Controls */}
       {totalPages > 1 && (
-        <div className="mt-6 flex items-center justify-center gap-2">
-          <button
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.3 }}
+          className="mt-6 flex items-center justify-center gap-2"
+        >
+          <motion.button
+            whileHover={{ scale: 1.05, x: -2 }}
+            whileTap={{ scale: 0.95 }}
             onClick={() => setPage((p) => Math.max(1, p - 1))}
             disabled={page === 1}
             className="px-3 py-2 rounded-lg bg-surface border border-border text-muted hover:text-white hover:bg-surface-elevated disabled:opacity-50 disabled:cursor-not-allowed transition-colors inline-flex items-center gap-1"
           >
             <ChevronLeft size={16} />
             Previous
-          </button>
+          </motion.button>
           
           <div className="flex items-center gap-1">
             {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
@@ -333,31 +387,35 @@ export default function OrderHistory({ refreshTrigger }) {
               }
               
               return (
-                <button
+                <motion.button
                   key={pageNum}
+                  whileHover={{ scale: 1.1 }}
+                  whileTap={{ scale: 0.9 }}
                   onClick={() => setPage(pageNum)}
-                  className={`px-3 py-2 rounded-lg font-sans font-semibold text-sm transition-colors ${
+                  className={`px-3 py-2 rounded-lg font-sans font-semibold text-sm transition-all duration-200 ${
                     page === pageNum
                       ? 'bg-accent text-[#0f1117]'
                       : 'bg-surface border border-border text-muted hover:text-white hover:bg-surface-elevated'
                   }`}
                 >
                   {pageNum}
-                </button>
+                </motion.button>
               );
             })}
           </div>
 
-          <button
+          <motion.button
+            whileHover={{ scale: 1.05, x: 2 }}
+            whileTap={{ scale: 0.95 }}
             onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
             disabled={page === totalPages}
             className="px-3 py-2 rounded-lg bg-surface border border-border text-muted hover:text-white hover:bg-surface-elevated disabled:opacity-50 disabled:cursor-not-allowed transition-colors inline-flex items-center gap-1"
           >
             Next
             <ChevronRight size={16} />
-          </button>
-        </div>
+          </motion.button>
+        </motion.div>
       )}
-    </div>
+    </motion.div>
   );
 }

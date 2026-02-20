@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Trash2, Package } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { addStock, getErrorMessage } from '../api';
 import { useToast } from '../components/Toast';
 
@@ -94,18 +95,37 @@ export default function AddStock({ refreshInventory, refreshOrders }) {
   };
 
   return (
-    <div className="p-8 max-w-5xl mx-auto">
-      <div className="card">
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.5, ease: [0.23, 1, 0.32, 1] }}
+      className="p-8 max-w-5xl mx-auto"
+    >
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95 }}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{ duration: 0.4, delay: 0.1 }}
+        className="card"
+      >
         <div className="card-header">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-lg bg-accent/15 flex items-center justify-center">
+          <motion.div
+            initial={{ opacity: 0, x: -20 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ duration: 0.4, delay: 0.2 }}
+            className="flex items-center gap-3"
+          >
+            <motion.div
+              className="w-10 h-10 rounded-lg bg-accent/15 flex items-center justify-center"
+              whileHover={{ scale: 1.1, rotate: [0, -5, 5, 0] }}
+              transition={{ type: 'spring', stiffness: 400, damping: 17 }}
+            >
               <Plus className="w-5 h-5 text-accent" />
-            </div>
+            </motion.div>
             <div>
               <h2 className="font-sans font-bold text-lg text-white">Add Stock</h2>
               <p className="font-sans text-sm text-muted mt-0.5">Record new pipe deliveries</p>
             </div>
-          </div>
+          </motion.div>
         </div>
         <div className="card-body space-y-6">
           <div>
@@ -123,14 +143,16 @@ export default function AddStock({ refreshInventory, refreshOrders }) {
           <div>
             <div className="flex items-center justify-between mb-3">
               <label className="text-sm font-sans font-medium text-gray-300">Pipe entries</label>
-              <button
+              <motion.button
                 type="button"
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
                 onClick={addRow}
-                className="btn-ghost flex items-center gap-2 text-accent hover:text-accent hover:bg-accent/10"
+                className="btn-ghost flex items-center gap-2 text-accent hover:text-accent hover:bg-accent/10 transition-all duration-200"
               >
                 <Plus size={18} />
                 Add row
-              </button>
+              </motion.button>
             </div>
             <div className="rounded-lg border border-border overflow-hidden">
               <table className="w-full">
@@ -144,8 +166,16 @@ export default function AddStock({ refreshInventory, refreshOrders }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map((row, idx) => (
-                    <tr key={idx} className="table-row-hover">
+                  <AnimatePresence>
+                    {rows.map((row, idx) => (
+                      <motion.tr
+                        key={idx}
+                        initial={{ opacity: 0, x: -20 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        exit={{ opacity: 0, x: 20 }}
+                        transition={{ duration: 0.3, delay: idx * 0.05 }}
+                        className="table-row-hover"
+                      >
                       <td className="table-td">
                         <input
                           type="number"
@@ -186,29 +216,43 @@ export default function AddStock({ refreshInventory, refreshOrders }) {
                         />
                       </td>
                       <td className="table-td">
-                        <button
+                        <motion.button
                           type="button"
+                          whileHover={{ scale: 1.1 }}
+                          whileTap={{ scale: 0.9 }}
                           onClick={() => removeRow(idx)}
                           className="btn-icon-danger inline-flex"
                           aria-label="Remove row"
                         >
                           <Trash2 size={16} />
-                        </button>
+                        </motion.button>
                       </td>
-                    </tr>
+                    </motion.tr>
                   ))}
+                  </AnimatePresence>
                 </tbody>
               </table>
             </div>
           </div>
         </div>
         <div className="px-6 py-4 border-t border-border bg-surface-elevated/30">
-          <button type="button" onClick={submit} className="btn-primary inline-flex items-center gap-2">
-            <Package size={18} />
+          <motion.button
+            type="button"
+            whileHover={{ scale: 1.02, y: -2 }}
+            whileTap={{ scale: 0.98 }}
+            onClick={submit}
+            className="btn-primary inline-flex items-center gap-2"
+          >
+            <motion.div
+              animate={{ rotate: [0, 10, -10, 0] }}
+              transition={{ duration: 0.5, repeat: Infinity, repeatDelay: 2 }}
+            >
+              <Package size={18} />
+            </motion.div>
             Add to inventory
-          </button>
+          </motion.button>
         </div>
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
   );
 }

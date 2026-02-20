@@ -1,17 +1,36 @@
 import React from 'react';
+import { motion } from 'framer-motion';
 import { formatNumber, formatDimensions } from '../utils/format';
 
 export default function PipeBar({ sourceLength, usedLength, remainder, fromSupplier, cutType, cutsFromThisPipe, cutLength, quantityUsed }) {
   if (cutType === 'exact') {
     return (
-      <div className="rounded-lg border border-border bg-surface-elevated/50 p-4 space-y-2">
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95 }}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{ duration: 0.3, ease: [0.23, 1, 0.32, 1] }}
+        whileHover={{ scale: 1.02 }}
+        className="rounded-lg border border-border bg-surface-elevated/50 p-4 space-y-2"
+      >
         <p className="text-sm font-sans text-muted">
           Source: {formatNumber(sourceLength)} × … <span className="text-accent font-medium">(Qty: {formatNumber(quantityUsed ?? 1)})</span>
         </p>
-        <div className="h-7 w-full bg-accent rounded-lg flex items-center justify-center shadow-inner">
-          <span className="font-mono text-sm font-medium text-[#0f1117]">Exact match</span>
-        </div>
-      </div>
+        <motion.div
+          initial={{ scaleX: 0 }}
+          animate={{ scaleX: 1 }}
+          transition={{ duration: 0.6, ease: [0.23, 1, 0.32, 1] }}
+          className="h-7 w-full bg-accent rounded-lg flex items-center justify-center shadow-inner"
+        >
+          <motion.span
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.3 }}
+            className="font-mono text-sm font-medium text-[#0f1117]"
+          >
+            Exact match
+          </motion.span>
+        </motion.div>
+      </motion.div>
     );
   }
 
@@ -25,26 +44,50 @@ export default function PipeBar({ sourceLength, usedLength, remainder, fromSuppl
       : null;
 
   return (
-    <div className="rounded-lg border border-border bg-surface-elevated/50 p-4 space-y-2">
+    <motion.div
+      initial={{ opacity: 0, scale: 0.95 }}
+      animate={{ opacity: 1, scale: 1 }}
+      transition={{ duration: 0.3, ease: [0.23, 1, 0.32, 1] }}
+      whileHover={{ scale: 1.02, y: -2 }}
+      className="rounded-lg border border-border bg-surface-elevated/50 p-4 space-y-2"
+    >
       <p className="text-sm font-sans text-muted">
         Source: {formatNumber(sourceLength)} × …{' '}
         <span className="text-accent font-medium">(Qty: {formatNumber(cutsFromThisPipe ?? 1)})</span>
       </p>
-      {cutLabel != null && <p className="font-mono text-sm text-accent font-medium">{cutLabel}</p>}
-      <div className="flex w-full h-7 rounded-lg overflow-hidden border border-border bg-[#0f1117]">
-        <div
+      {cutLabel != null && (
+        <motion.p
+          initial={{ opacity: 0, x: -10 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ delay: 0.1 }}
+          className="font-mono text-sm text-accent font-medium"
+        >
+          {cutLabel}
+        </motion.p>
+      )}
+      <div className="flex w-full h-7 rounded-lg overflow-hidden border border-border/50 bg-[#0f1117] shadow-inner">
+        <motion.div
+          initial={{ width: 0 }}
+          animate={{ width: `${usedPct}%` }}
+          transition={{ duration: 0.8, ease: [0.23, 1, 0.32, 1], delay: 0.2 }}
           className="h-full bg-accent flex items-center justify-center min-w-0 transition-all duration-300"
-          style={{ width: `${usedPct}%` }}
         />
-        <div
-          className="h-full bg-muted/40 flex items-center justify-center min-w-0 transition-all duration-300"
-          style={{ width: `${remPct}%` }}
+        <motion.div
+          initial={{ width: 0 }}
+          animate={{ width: `${remPct}%` }}
+          transition={{ duration: 0.8, ease: [0.23, 1, 0.32, 1], delay: 0.3 }}
+          className="h-full bg-gradient-to-r from-muted/40 to-muted/60 flex items-center justify-center min-w-0"
         />
       </div>
-      <div className="flex justify-between text-xs font-mono text-muted">
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ delay: 0.5 }}
+        className="flex justify-between text-xs font-mono text-muted"
+      >
         <span>{formatNumber(usedLength)} used</span>
         <span>{formatNumber(remainder)} remainder</span>
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
   );
 }

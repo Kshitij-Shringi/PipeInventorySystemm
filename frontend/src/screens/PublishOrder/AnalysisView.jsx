@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import PipeBar from '../../components/PipeBar';
 import { executeOrder, getErrorMessage } from '../../api';
 import { useToast } from '../../components/Toast';
@@ -201,18 +202,33 @@ export default function AnalysisView({ analysisResponse, recipient, onExecuted, 
   };
 
   return (
-    <div className="p-8 max-w-5xl mx-auto space-y-6">
-      <button
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.5, ease: [0.23, 1, 0.32, 1] }}
+      className="p-8 max-w-5xl mx-auto space-y-6"
+    >
+      <motion.button
         type="button"
+        whileHover={{ x: -5 }}
+        whileTap={{ scale: 0.95 }}
         onClick={onBack}
         className="btn-ghost inline-flex items-center gap-2"
       >
         <ArrowLeft size={18} />
         Back to form
-      </button>
+      </motion.button>
 
-      {analysis.map((block, blockIdx) => (
-        <div key={blockIdx} className="card">
+      <AnimatePresence>
+        {analysis.map((block, blockIdx) => (
+          <motion.div
+            key={blockIdx}
+            initial={{ opacity: 0, y: 30 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            transition={{ duration: 0.4, delay: blockIdx * 0.1 }}
+            className="card"
+          >
           <div className="card-header">
             <h3 className="font-sans font-bold text-white">Requirement {blockIdx + 1}</h3>
           </div>
@@ -282,8 +298,12 @@ export default function AnalysisView({ analysisResponse, recipient, onExecuted, 
                         (entry) => remainderDecisions[makeEntryKey(entry)]?.keep === false,
                       );
                     return (
-                      <div
+                      <motion.div
                         key={agg.id}
+                        initial={{ opacity: 0, scale: 0.95 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        transition={{ duration: 0.3 }}
+                        whileHover={{ scale: 1.01 }}
                         className="flex flex-wrap items-center gap-4 p-4 rounded-lg border border-border bg-surface-elevated/30"
                       >
                         <div className="flex-1 min-w-[200px]">
@@ -300,48 +320,69 @@ export default function AnalysisView({ analysisResponse, recipient, onExecuted, 
                           )}
                           <p className="text-xs text-muted mt-1">{agg.from_supplier}</p>
                         </div>
-                        <div className="flex gap-2">
-                          <button
+                        <motion.div
+                          initial={{ opacity: 0 }}
+                          animate={{ opacity: 1 }}
+                          transition={{ delay: 0.2 }}
+                          className="flex gap-2"
+                        >
+                          <motion.button
                             type="button"
+                            whileHover={{ scale: 1.05 }}
+                            whileTap={{ scale: 0.95 }}
                             onClick={() => setDecisionForGroup(agg, true)}
-                            className={`px-4 py-2 rounded-lg text-sm font-sans font-semibold border transition-all duration-200 ${
+                            className={`px-4 py-2 rounded-lg text-sm font-sans font-semibold border transition-all duration-300 ${
                               allKeep
                                 ? 'bg-success/20 border-success text-success shadow-glow-accent'
                                 : 'border-border text-muted hover:border-success hover:text-success hover:bg-success/10'
                             }`}
                           >
                             Keep all ({agg.count})
-                          </button>
-                          <button
+                          </motion.button>
+                          <motion.button
                             type="button"
+                            whileHover={{ scale: 1.05 }}
+                            whileTap={{ scale: 0.95 }}
                             onClick={() => setDecisionForGroup(agg, false)}
-                            className={`px-4 py-2 rounded-lg text-sm font-sans font-semibold border transition-all duration-200 ${
+                            className={`px-4 py-2 rounded-lg text-sm font-sans font-semibold border transition-all duration-300 ${
                               allDiscard
                                 ? 'bg-danger/20 border-danger text-danger shadow-glow-accent'
                                 : 'border-border text-muted hover:border-danger hover:text-danger hover:bg-danger/10'
                             }`}
                           >
                             Discard all ({agg.count})
-                          </button>
-                          <button
+                          </motion.button>
+                          <motion.button
                             type="button"
+                            whileHover={{ scale: 1.05 }}
+                            whileTap={{ scale: 0.95 }}
                             onClick={() => toggleGroupExpanded(agg.id)}
-                            className="text-xs font-sans text-muted hover:text-accent underline-offset-2 hover:underline"
+                            className="text-xs font-sans text-muted hover:text-accent underline-offset-2 hover:underline transition-colors"
                           >
                             {isExpanded ? 'Hide pieces' : 'Show all pieces'}
-                          </button>
-                        </div>
-                        {isExpanded && (
-                          <div className="mt-3 w-full space-y-2">
-                            {(agg.sourceEntries || []).map((entry, idxEntry) => {
+                          </motion.button>
+                        </motion.div>
+                        <AnimatePresence>
+                          {isExpanded && (
+                            <motion.div
+                              initial={{ opacity: 0, height: 0 }}
+                              animate={{ opacity: 1, height: 'auto' }}
+                              exit={{ opacity: 0, height: 0 }}
+                              transition={{ duration: 0.3 }}
+                              className="mt-3 w-full space-y-2 overflow-hidden"
+                            >
+                              {(agg.sourceEntries || []).map((entry, idxEntry) => {
                               const key = makeEntryKey(entry);
                               const decision = remainderDecisions[key];
                               const keepSelected = decision?.keep === true;
                               const discardSelected = decision?.keep === false;
                               return (
-                                <div
+                                <motion.div
                                   key={key}
-                                  className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border/60 bg-surface-elevated/40 px-3 py-2"
+                                  initial={{ opacity: 0, x: -20 }}
+                                  animate={{ opacity: 1, x: 0 }}
+                                  transition={{ delay: idxEntry * 0.05 }}
+                                  className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border bg-surface-elevated/40 px-3 py-2"
                                 >
                                   <div className="flex items-center gap-2">
                                     <span className="text-xs font-sans text-muted">Piece {idxEntry + 1}</span>
@@ -350,61 +391,84 @@ export default function AnalysisView({ analysisResponse, recipient, onExecuted, 
                                     </span>
                                   </div>
                                   <div className="flex gap-2">
-                                    <button
+                                    <motion.button
                                       type="button"
+                                      whileHover={{ scale: 1.05 }}
+                                      whileTap={{ scale: 0.95 }}
                                       onClick={() => setDecisionForEntry(entry, true)}
-                                      className={`px-3 py-1 rounded-lg text-xs font-sans font-semibold border transition-all duration-200 ${
+                                      className={`px-3 py-1 rounded-lg text-xs font-sans font-semibold border transition-all duration-300 ${
                                         keepSelected
                                           ? 'bg-success/20 border-success text-success'
                                           : 'border-border text-muted hover:border-success hover:text-success hover:bg-success/10'
                                       }`}
                                     >
                                       Keep
-                                    </button>
-                                    <button
+                                    </motion.button>
+                                    <motion.button
                                       type="button"
+                                      whileHover={{ scale: 1.05 }}
+                                      whileTap={{ scale: 0.95 }}
                                       onClick={() => setDecisionForEntry(entry, false)}
-                                      className={`px-3 py-1 rounded-lg text-xs font-sans font-semibold border transition-all duration-200 ${
+                                      className={`px-3 py-1 rounded-lg text-xs font-sans font-semibold border transition-all duration-300 ${
                                         discardSelected
                                           ? 'bg-danger/20 border-danger text-danger'
                                           : 'border-border text-muted hover:border-danger hover:text-danger hover:bg-danger/10'
                                       }`}
                                     >
                                       Discard
-                                    </button>
+                                    </motion.button>
                                   </div>
-                                </div>
+                                </motion.div>
                               );
                             })}
-                          </div>
-                        )}
-                      </div>
+                          </motion.div>
+                          )}
+                        </AnimatePresence>
+                      </motion.div>
                     );
                   })}
                 </div>
               )}
             </div>
           </div>
-        </div>
+        </motion.div>
       ))}
+      </AnimatePresence>
 
-      <div className="flex justify-end pt-2">
-        <button
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.5 }}
+        className="flex justify-end pt-2"
+      >
+        <motion.button
           type="button"
+          whileHover={{ scale: 1.02, y: -2 }}
+          whileTap={{ scale: 0.98 }}
           onClick={handleExecute}
           disabled={!allDecided || executing || hasUnfulfilled}
           className="btn-success inline-flex items-center gap-2"
         >
           {executing ? (
-            <>Processing…</>
+            <motion.div
+              animate={{ rotate: 360 }}
+              transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+            >
+              Processing…
+            </motion.div>
           ) : (
             <>
-              <CheckCircle size={18} />
+              <motion.div
+                animate={allDecided ? { scale: [1, 1.2, 1] } : {}}
+                transition={{ duration: 0.5, repeat: Infinity, repeatDelay: 2 }}
+              >
+                <CheckCircle size={18} />
+              </motion.div>
               Confirm & execute order
             </>
           )}
-        </button>
-      </div>
-    </div>
+        </motion.button>
+      </motion.div>
+    </motion.div>
   );
 }

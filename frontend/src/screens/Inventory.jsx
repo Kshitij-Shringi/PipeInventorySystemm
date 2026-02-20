@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Trash2, Package, Loader2, Pencil, AlertTriangle, X } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { fetchInventory, deleteInventoryItem, updateInventoryItem, getErrorMessage } from '../api';
 import { useToast } from '../components/Toast';
 import { formatNumber } from '../utils/format';
@@ -129,26 +130,56 @@ export default function Inventory({ refreshTrigger }) {
   }
 
   return (
-    <div className="p-8 max-w-5xl mx-auto">
-      <div className="card">
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.5, ease: [0.23, 1, 0.32, 1] }}
+      className="p-8 max-w-5xl mx-auto"
+    >
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95 }}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{ duration: 0.4, delay: 0.1 }}
+        className="card"
+      >
         <div className="card-header flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-lg bg-accent/15 flex items-center justify-center">
+          <motion.div
+            initial={{ opacity: 0, x: -20 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ duration: 0.4, delay: 0.2 }}
+            className="flex items-center gap-3"
+          >
+            <motion.div
+              className="w-10 h-10 rounded-lg bg-accent/15 flex items-center justify-center"
+              whileHover={{ scale: 1.1, rotate: [0, -5, 5, 0] }}
+              transition={{ type: 'spring', stiffness: 400, damping: 17 }}
+            >
               <Package className="w-5 h-5 text-accent" />
-            </div>
+            </motion.div>
             <div>
               <h2 className="font-sans font-bold text-lg text-white">Inventory</h2>
               <p className="font-sans text-sm text-muted mt-0.5">Stock by dimensions</p>
             </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-sans font-medium bg-white/10 text-gray-300">
+          </motion.div>
+          <motion.div
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ duration: 0.4, delay: 0.3 }}
+            className="flex items-center gap-2"
+          >
+            <motion.span
+              whileHover={{ scale: 1.05 }}
+              className="inline-flex items-center px-3 py-1 rounded-full text-xs font-sans font-medium bg-gradient-to-r from-white/10 to-white/5 text-gray-300 backdrop-blur-sm"
+            >
               {uniqueSizes} unique size{uniqueSizes !== 1 ? 's' : ''}
-            </span>
-            <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-sans font-medium bg-accent/20 text-accent">
+            </motion.span>
+            <motion.span
+              whileHover={{ scale: 1.05 }}
+              className="inline-flex items-center px-3 py-1 rounded-full text-xs font-sans font-medium bg-accent/20 text-accent"
+            >
               {totalPipes} total pipe{totalPipes !== 1 ? 's' : ''}
-            </span>
-          </div>
+            </motion.span>
+          </motion.div>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full">
@@ -162,15 +193,20 @@ export default function Inventory({ refreshTrigger }) {
               </tr>
             </thead>
             <tbody>
-              {items.map((row) => {
-                const isEditing = editingId === row.id;
-                return (
-                  <tr
-                    key={row.id}
-                    className={`table-row-hover transition-colors ${
-                      isEditing ? 'bg-white/[0.04] border-l-2 border-l-accent' : ''
-                    }`}
-                  >
+              <AnimatePresence>
+                {items.map((row, index) => {
+                  const isEditing = editingId === row.id;
+                  return (
+                    <motion.tr
+                      key={row.id}
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, x: -20 }}
+                      transition={{ duration: 0.3, delay: index * 0.03 }}
+                      className={`table-row-hover transition-colors ${
+                        isEditing ? 'bg-white/[0.04] border-l-2 border-l-accent' : ''
+                      }`}
+                    >
                     <td className="table-td font-mono text-accent font-medium">
                       {isEditing ? (
                         <input
@@ -240,59 +276,97 @@ export default function Inventory({ refreshTrigger }) {
                           </button>
                         </div>
                       ) : (
-                        <div className="inline-flex items-center justify-end gap-2">
-                          <button
+                        <motion.div
+                          initial={{ opacity: 0 }}
+                          animate={{ opacity: 1 }}
+                          className="inline-flex items-center justify-end gap-2"
+                        >
+                          <motion.button
+                            whileHover={{ scale: 1.1 }}
+                            whileTap={{ scale: 0.9 }}
                             onClick={() => startEdit(row)}
-                            className="inline-flex items-center justify-center px-2 py-1 rounded-lg text-xs font-sans text-muted hover:text-accent hover:bg-white/5 border border-transparent hover:border-accent/40"
+                            className="inline-flex items-center justify-center px-2 py-1 rounded-lg text-xs font-sans text-muted hover:text-accent hover:bg-white/5 border border-transparent hover:border-accent/40 transition-all duration-200"
                             aria-label="Edit"
                           >
                             <Pencil size={16} />
-                          </button>
-                          <button
+                          </motion.button>
+                          <motion.button
+                            whileHover={{ scale: 1.1 }}
+                            whileTap={{ scale: 0.9 }}
                             onClick={() => handleDeleteClick(row)}
                             className="btn-icon-danger inline-flex items-center justify-center"
                             aria-label="Delete"
                           >
                             <Trash2 size={18} />
-                          </button>
-                        </div>
+                          </motion.button>
+                        </motion.div>
                       )}
                     </td>
-                  </tr>
+                  </motion.tr>
                 );
               })}
+              </AnimatePresence>
             </tbody>
           </table>
         </div>
         {items.length === 0 && (
-          <div className="card-body flex flex-col items-center justify-center py-16 text-center">
-            <div className="w-16 h-16 rounded-full bg-white/5 flex items-center justify-center mb-4">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ duration: 0.4 }}
+            className="card-body flex flex-col items-center justify-center py-16 text-center"
+          >
+            <motion.div
+              animate={{ y: [0, -10, 0] }}
+              transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
+              className="w-16 h-16 rounded-full bg-white/5 flex items-center justify-center mb-4"
+            >
               <Package className="w-8 h-8 text-muted" />
-            </div>
+            </motion.div>
             <p className="font-sans text-muted">No inventory items yet.</p>
             <p className="font-sans text-sm text-muted/80 mt-1">Add stock to get started.</p>
-          </div>
+          </motion.div>
         )}
-      </div>
+      </motion.div>
 
       {/* Delete Confirmation Modal */}
-      {deleteConfirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="bg-surface border border-border rounded-xl shadow-card max-w-md w-full mx-4 overflow-hidden">
+      <AnimatePresence>
+        {deleteConfirm && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+            onClick={handleDeleteCancel}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              transition={{ type: 'spring', stiffness: 300, damping: 25 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-surface border border-border rounded-xl shadow-card max-w-md w-full mx-4 overflow-hidden"
+            >
             <div className="px-6 py-5 border-b border-border bg-surface-elevated/80 flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-lg bg-danger/15 flex items-center justify-center">
+                <motion.div
+                  animate={{ rotate: [0, -10, 10, 0] }}
+                  transition={{ duration: 0.5 }}
+                  className="w-10 h-10 rounded-lg bg-danger/15 flex items-center justify-center"
+                >
                   <AlertTriangle className="w-5 h-5 text-danger" />
-                </div>
+                </motion.div>
                 <h3 className="font-sans font-bold text-lg text-white">Delete Inventory Item</h3>
               </div>
-              <button
+              <motion.button
+                whileHover={{ scale: 1.1, rotate: 90 }}
+                whileTap={{ scale: 0.9 }}
                 onClick={handleDeleteCancel}
                 className="p-1.5 rounded-lg text-muted hover:text-white hover:bg-white/5 transition-colors"
                 aria-label="Close"
               >
                 <X size={20} />
-              </button>
+              </motion.button>
             </div>
             <div className="p-6">
               <p className="font-sans text-gray-300 mb-2">
@@ -303,23 +377,28 @@ export default function Inventory({ refreshTrigger }) {
                 <p className="font-sans text-xs text-muted mt-1">Quantity: {formatNumber(deleteConfirm.quantity)}</p>
               </div>
               <div className="flex gap-3 mt-6">
-                <button
+                <motion.button
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
                   onClick={handleDeleteCancel}
-                  className="flex-1 px-4 py-2.5 rounded-lg font-sans font-semibold text-gray-300 bg-white/5 border border-border hover:bg-white/10 transition-colors"
+                  className="flex-1 px-4 py-2.5 rounded-lg font-sans font-semibold text-gray-300 bg-gradient-to-r from-white/5 to-white/10 border border-border hover:from-white/10 hover:to-white/15 transition-all duration-200"
                 >
                   Cancel
-                </button>
-                <button
+                </motion.button>
+                <motion.button
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
                   onClick={handleDeleteConfirm}
                   className="flex-1 px-4 py-2.5 rounded-lg font-sans font-semibold text-white bg-danger hover:bg-danger-hover transition-colors shadow-card"
                 >
                   Delete
-                </button>
+                </motion.button>
               </div>
             </div>
-          </div>
-        </div>
-      )}
-    </div>
+          </motion.div>
+        </motion.div>
+        )}
+      </AnimatePresence>
+    </motion.div>
   );
 }
