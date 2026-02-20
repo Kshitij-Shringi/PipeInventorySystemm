@@ -1,0 +1,68 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: #0f1117;
+  font-family: 'DM Sans', sans-serif;
+  color: #e5e7eb;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+/* Subtle grid background */
+.app-bg {
+  background-image:
+    linear-gradient(rgba(42, 45, 58, 0.15) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(42, 45, 58, 0.15) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+/* Inputs */
+input[type="text"],
+input[type="number"] {
+  @apply transition-all duration-200;
+}
+input:focus {
+  @apply outline-none ring-2 ring-accent/50 ring-offset-2 ring-offset-[#0f1117];
+}
+
+/* Buttons */
+.btn-primary {
+  @apply px-5 py-2.5 rounded-lg font-sans font-semibold text-[#0f1117] bg-accent hover:bg-accent-hover transition-all duration-200 shadow-card active:scale-[0.98];
+}
+.btn-success {
+  @apply px-6 py-2.5 rounded-lg font-sans font-semibold text-white bg-success hover:bg-success-hover transition-all duration-200 shadow-card active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100;
+}
+.btn-ghost {
+  @apply px-4 py-2 rounded-lg font-sans text-sm text-gray-400 hover:text-white hover:bg-white/5 transition-all duration-200;
+}
+.btn-icon-danger {
+  @apply p-2.5 rounded-lg text-danger hover:bg-danger/15 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-danger/50;
+}
+
+/* Card */
+.card {
+  @apply bg-surface border border-border rounded-xl overflow-hidden shadow-card;
+}
+.card-header {
+  @apply px-6 py-4 border-b border-border bg-surface-elevated/80;
+}
+.card-body {
+  @apply p-6;
+}
+.table-th {
+  @apply px-5 py-3.5 text-left text-xs font-sans font-semibold text-muted uppercase tracking-wider;
+}
+.table-td {
+  @apply px-5 py-4 font-sans text-sm;
+}
+.table-row-hover {
+  @apply border-b border-border/60 transition-colors duration-150 hover:bg-white/[0.04];
+}
