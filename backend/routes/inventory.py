@@ -1,9 +1,11 @@
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, HTTPException
 from bson import ObjectId
+from fastapi import APIRouter, Depends, HTTPException
 
+from auth import get_current_user
 from database import get_database, INVENTORY_COLLECTION, STOCK_ACTIVITY_COLLECTION
+from models import User
 
 router = APIRouter(prefix="/inventory", tags=["inventory"])
 
@@ -14,11 +16,13 @@ def _doc_to_item(doc: dict) -> dict:
     doc["id"] = str(doc.pop("_id"))
     if "from" in doc:
         doc["from_supplier"] = doc.pop("from")
+    # Do not expose tenant_id in API responses
+    doc.pop("tenant_id", None)
     return doc
 
 
 @router.get("")
-async def get_inventory():
+async def get_inventory(current_user: User = Depends(get_current_user)):
     """
     Return inventory aggregated by (length, width, height) only - ignoring supplier.
     All pipes with same dimensions are combined into one row with total quantity.
@@ -26,7 +30,9 @@ async def get_inventory():
     """
     db = get_database()
     coll = db[INVENTORY_COLLECTION]
+    tenant_id = current_user.tenant_id
     pipeline = [
+        {"$match": {"tenant_id": tenant_id}},
         {
             "$group": {
                 "_id": {"length": "$length", "width": "$width", "height": "$height"},
@@ -54,7 +60,7 @@ async def get_inventory():
 
 
 @router.post("/add")
-async def add_stock(body: dict):
+async def add_stock(body: dict, current_user: User = Depends(get_current_user)):
     """
     body: { from_supplier: str, pipes: [{ length, width, height, quantity }] }
     For each pipe: if matching from_supplier+L+W+H exists → $inc quantity, else insert.
@@ -68,6 +74,7 @@ async def add_stock(body: dict):
     db = get_database()
     coll = db[INVENTORY_COLLECTION]
     activity_coll = db[STOCK_ACTIVITY_COLLECTION]
+    tenant_id = current_user.tenant_id
 
     total_added = 0
     pipes_added = []
@@ -87,8 +94,17 @@ async def add_stock(body: dict):
             raise HTTPException(status_code=400, detail="Quantity must be positive")
 
         await coll.update_one(
-            {"from": from_supplier, "length": length, "width": width, "height": height},
-            {"$inc": {"quantity": quantity}},
+            {
+                "tenant_id": tenant_id,
+                "from": from_supplier,
+                "length": length,
+                "width": width,
+                "height": height,
+            },
+            {
+                "$inc": {"quantity": quantity},
+                "$setOnInsert": {"tenant_id": tenant_id},
+            },
             upsert=True,
         )
         total_added += quantity
@@ -101,6 +117,7 @@ async def add_stock(body: dict):
 
     # Log activity
     await activity_coll.insert_one({
+        "tenant_id": tenant_id,
         "from_supplier": from_supplier,
         "pipes": pipes_added,
         "total_quantity": total_added,
@@ -116,6 +133,7 @@ async def get_stock_activity(
     end_date: str = None,
     page: int = 1,
     page_size: int = 10,
+    current_user: User = Depends(get_current_user),
 ):
     """
     Get stock addition activity with date filtering and pagination.
@@ -127,6 +145,7 @@ async def get_stock_activity(
     
     db = get_database()
     coll = db[STOCK_ACTIVITY_COLLECTION]
+    tenant_id = current_user.tenant_id
     
     # Build date filter
     date_filter = {}
@@ -148,7 +167,7 @@ async def get_stock_activity(
         except Exception:
             pass
     
-    query = {}
+    query = {"tenant_id": tenant_id}
     if date_filter:
         query["created_at"] = date_filter
     
@@ -178,7 +197,7 @@ async def get_stock_activity(
 
 
 @router.delete("/{id}")
-async def delete_inventory_item(id: str):
+async def delete_inventory_item(id: str, current_user: User = Depends(get_current_user)):
     """Delete a single underlying inventory document by id."""
     try:
         oid = ObjectId(id)
@@ -186,14 +205,15 @@ async def delete_inventory_item(id: str):
         raise HTTPException(status_code=400, detail="Invalid id")
     db = get_database()
     coll = db[INVENTORY_COLLECTION]
-    result = await coll.delete_one({"_id": oid})
+    tenant_id = current_user.tenant_id
+    result = await coll.delete_one({"_id": oid, "tenant_id": tenant_id})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Item not found")
     return {"ok": True}
 
 
 @router.put("/{id}")
-async def update_inventory_item(id: str, body: dict):
+async def update_inventory_item(id: str, body: dict, current_user: User = Depends(get_current_user)):
     """
     Update a single underlying inventory document by id.
 
@@ -206,7 +226,8 @@ async def update_inventory_item(id: str, body: dict):
 
     db = get_database()
     coll = db[INVENTORY_COLLECTION]
-    doc = await coll.find_one({"_id": oid})
+    tenant_id = current_user.tenant_id
+    doc = await coll.find_one({"_id": oid, "tenant_id": tenant_id})
     if not doc:
         raise HTTPException(status_code=404, detail="Item not found")
 
@@ -228,7 +249,7 @@ async def update_inventory_item(id: str, body: dict):
         raise HTTPException(status_code=400, detail="quantity must be non-negative")
 
     await coll.update_one(
-        {"_id": oid},
+        {"_id": oid, "tenant_id": tenant_id},
         {
             "$set": {
                 "length": length,
@@ -239,5 +260,5 @@ async def update_inventory_item(id: str, body: dict):
         },
     )
 
-    updated = await coll.find_one({"_id": oid})
+    updated = await coll.find_one({"_id": oid, "tenant_id": tenant_id})
     return _doc_to_item(updated)

@@ -1,10 +1,11 @@
-from fastapi import APIRouter, HTTPException
-from bson import ObjectId
-
 from datetime import datetime, timezone
 
+from bson import ObjectId
+from fastapi import APIRouter, Depends, HTTPException
+
+from auth import get_current_user
 from database import get_database, INVENTORY_COLLECTION, ORDERS_COLLECTION
-from models import OrderRequest, ExecuteOrderRequest
+from models import ExecuteOrderRequest, OrderRequest, User
 
 router = APIRouter(prefix="/orders", tags=["orders"])
 
@@ -14,6 +15,8 @@ def _doc_to_item(doc: dict) -> dict:
     doc["id"] = str(doc.pop("_id"))
     if "from" in doc:
         doc["from_supplier"] = doc.pop("from")
+    # Do not expose tenant_id in API responses
+    doc.pop("tenant_id", None)
     return doc
 
 
@@ -122,6 +125,7 @@ async def list_orders(
     end_date: str = None,
     page: int = 1,
     page_size: int = 10,
+    current_user: User = Depends(get_current_user),
 ):
     """
     List orders with date filtering and pagination.
@@ -130,10 +134,10 @@ async def list_orders(
     page_size: Items per page
     """
     from datetime import datetime
-    
+
     db = get_database()
     coll = db[ORDERS_COLLECTION]
-    
+    tenant_id = current_user.tenant_id
     # Build date filter
     date_filter = {}
     if start_date:
@@ -155,7 +159,7 @@ async def list_orders(
         except Exception:
             pass
     
-    query = {}
+    query = {"tenant_id": tenant_id}
     if date_filter:
         query["created_at"] = date_filter
     
@@ -185,14 +189,15 @@ async def list_orders(
 
 
 @router.post("/analyse")
-async def analyse_order(request: OrderRequest):
+async def analyse_order(request: OrderRequest, current_user: User = Depends(get_current_user)):
     """
     Run matching engine on requirements; does NOT modify DB.
     Uses remainders from earlier requirements to fulfill later ones.
     """
     db = get_database()
     coll = db[INVENTORY_COLLECTION]
-    cursor = coll.find({})
+    tenant_id = current_user.tenant_id
+    cursor = coll.find({"tenant_id": tenant_id})
     inventory = []
     async for doc in cursor:
         inventory.append(_doc_to_item(doc))
@@ -284,7 +289,7 @@ async def analyse_order(request: OrderRequest):
 
 
 @router.post("/execute")
-async def execute_order(request: ExecuteOrderRequest):
+async def execute_order(request: ExecuteOrderRequest, current_user: User = Depends(get_current_user)):
     """
     Deduct quantities from used pipes (delete if quantity hits 0).
     Insert remainder pipes where keep=True.
@@ -293,6 +298,7 @@ async def execute_order(request: ExecuteOrderRequest):
     db = get_database()
     inventory_coll = db[INVENTORY_COLLECTION]
     orders_coll = db[ORDERS_COLLECTION]
+    tenant_id = current_user.tenant_id
 
     pipes_consumed = 0
     returned_to_stock = 0
@@ -309,15 +315,18 @@ async def execute_order(request: ExecuteOrderRequest):
             oid = ObjectId(pipe_id)
         except Exception:
             continue
-        doc = await inventory_coll.find_one({"_id": oid})
+        doc = await inventory_coll.find_one({"_id": oid, "tenant_id": tenant_id})
         if not doc:
             continue
         new_qty = doc["quantity"] - quantity_to_deduct
         pipes_consumed += quantity_to_deduct
         if new_qty <= 0:
-            await inventory_coll.delete_one({"_id": oid})
+            await inventory_coll.delete_one({"_id": oid, "tenant_id": tenant_id})
         else:
-            await inventory_coll.update_one({"_id": oid}, {"$set": {"quantity": new_qty}})
+            await inventory_coll.update_one(
+                {"_id": oid, "tenant_id": tenant_id},
+                {"$set": {"quantity": new_qty}},
+            )
         # Format dimensions - remove .0 for whole numbers
         def fmt_dim(d):
             if d == int(d):
@@ -354,12 +363,16 @@ async def execute_order(request: ExecuteOrderRequest):
         # Merge by dimensions + supplier so same pipe size shows as one row with total quantity
         await inventory_coll.update_one(
             {
+                "tenant_id": tenant_id,
                 "from": rd.from_supplier,
                 "length": rd.remainder_length,
                 "width": rd.width,
                 "height": rd.height,
             },
-            {"$inc": {"quantity": 1}},
+            {
+                "$inc": {"quantity": 1},
+                "$setOnInsert": {"tenant_id": tenant_id},
+            },
             upsert=True,
         )
         # Track for order record
@@ -373,6 +386,7 @@ async def execute_order(request: ExecuteOrderRequest):
         "discarded": discarded,
     }
     order_record = {
+        "tenant_id": tenant_id,
         "recipient": request.recipient,
         "summary": summary,
         "fulfillment_detail": fulfillment_detail,

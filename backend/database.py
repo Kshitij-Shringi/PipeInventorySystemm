@@ -12,6 +12,8 @@ DB_NAME = os.getenv("MONGO_DB_NAME", "pipe_inventory")
 INVENTORY_COLLECTION = "inventory"
 ORDERS_COLLECTION = "orders"
 STOCK_ACTIVITY_COLLECTION = "stock_activity"
+TENANTS_COLLECTION = "tenants"
+USERS_COLLECTION = "users"
 
 client: AsyncIOMotorClient | None = None
 
