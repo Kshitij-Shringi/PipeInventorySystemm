@@ -10,6 +10,18 @@ class TenantCreate(BaseModel):
     password: str = Field(..., min_length=6, max_length=128)
 
 
+class TenantRequestCreate(BaseModel):
+    """Submit a request for a new tenant; admin approves before access is granted."""
+    email: EmailStr
+    tenant_name: Optional[str] = Field(None, max_length=200)
+
+
+class TenantRequestApprove(BaseModel):
+    """Admin provides tenant name and initial password when approving a request."""
+    tenant_name: str = Field(..., min_length=1, max_length=200)
+    password: str = Field(..., min_length=6, max_length=128)
+
+
 class TenantInDB(BaseModel):
     id: str
     name: str

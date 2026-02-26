@@ -105,16 +105,12 @@ export async function fetchStockActivity({ startDate, endDate, page = 1, pageSiz
   return data;
 }
 
-export async function registerTenant({ email, password, tenant_name }) {
-  const { data } = await api.post('/auth/register-tenant', {
+/** Submit a request for a new tenant; admin must approve before user can sign in. */
+export async function requestTenantAccess({ email, tenant_name }) {
+  const { data } = await api.post('/auth/request-tenant-access', {
     email,
-    password,
-    tenant_name,
+    tenant_name: tenant_name || undefined,
   });
-  if (data?.access_token) {
-    setAuthToken(data.access_token);
-    window.localStorage.setItem('auth_token', data.access_token);
-  }
   return data;
 }
 
@@ -218,8 +214,26 @@ export async function adminFetchTenants() {
   return data;
 }
 
+export async function adminCreateTenant({ tenant_name, email, password }) {
+  const { data } = await adminApi.post('/admin/tenants', {
+    tenant_name,
+    email,
+    password,
+  });
+  return data;
+}
+
 export async function adminFetchTenantStats(tenantId) {
   const { data } = await adminApi.get(`/admin/tenants/${tenantId}/stats`);
+  return data;
+}
+
+export async function adminCreateTenantUser(tenantId, { email, password, role }) {
+  const { data } = await adminApi.post(`/admin/tenants/${tenantId}/users`, {
+    email,
+    password,
+    role,
+  });
   return data;
 }
 
@@ -230,5 +244,25 @@ export async function adminUpdateTenantStatus(tenantId, status) {
 
 export async function adminUpdateTenant(tenantId, payload) {
   const { data } = await adminApi.put(`/admin/tenants/${tenantId}`, payload);
+  return data;
+}
+
+export async function adminFetchTenantRequests(statusFilter = 'pending') {
+  const { data } = await adminApi.get('/admin/tenant-requests', {
+    params: statusFilter === 'all' ? { status_filter: 'all' } : {},
+  });
+  return data;
+}
+
+export async function adminApproveTenantRequest(requestId, { tenant_name, password }) {
+  const { data } = await adminApi.post(`/admin/tenant-requests/${requestId}/approve`, {
+    tenant_name,
+    password,
+  });
+  return data;
+}
+
+export async function adminRejectTenantRequest(requestId) {
+  const { data } = await adminApi.post(`/admin/tenant-requests/${requestId}/reject`);
   return data;
 }

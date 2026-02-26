@@ -11,6 +11,7 @@ import RegisterTenant from './screens/RegisterTenant';
 import Users from './screens/Users';
 import AdminLogin from './screens/AdminLogin';
 import AdminDashboard from './screens/AdminDashboard';
+import AdminTenantDetail from './screens/AdminTenantDetail';
 import { AuthProvider, useAuth } from './AuthContext';
 
 function PrivateRoute({ element }) {
@@ -65,6 +66,7 @@ function AppContent() {
           <Route path="/register" element={<RegisterTenant />} />
           <Route path="/admin/login" element={<AdminLogin />} />
           <Route path="/admin" element={<AdminDashboard />} />
+          <Route path="/admin/tenants/:tenantId" element={<AdminTenantDetail />} />
           <Route path="/inventory" element={<PrivateRoute element={<Inventory refreshTrigger={inventoryRefresh} />} />} />
           <Route
             path="/add-stock"

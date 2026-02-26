@@ -1,11 +1,29 @@
+import re
 from fastapi import APIRouter, Depends, HTTPException, status
 from bson import ObjectId
 
-from database import get_control_database, get_tenant_database
-from security import get_current_superadmin
+from auth_models import TenantRequestApprove, TenantCreate, TenantUserCreate, utc_now
+from database import (
+    get_control_database,
+    get_tenant_database,
+    INVENTORY_COLLECTION,
+    ORDERS_COLLECTION,
+)
+from security import get_current_superadmin, hash_password
 
 
 router = APIRouter(prefix="/admin", tags=["admin"], dependencies=[Depends(get_current_superadmin)])
+
+
+def _slugify_name(name: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+    return slug or "tenant"
+
+
+def _tenant_db_name(tenant_id: str, tenant_name: str) -> str:
+    slug = _slugify_name(tenant_name)
+    short_id = tenant_id[:6]
+    return f"pipe_inventory_{slug}_{short_id}"
 
 
 @router.get("/tenants")
@@ -24,6 +42,61 @@ async def list_tenants():
             }
         )
     return {"items": tenants}
+
+
+@router.post("/tenants")
+async def create_tenant(payload: TenantCreate):
+    """
+    Superadmin: create a tenant directly with initial admin user.
+
+    This is similar to approving a tenant request, but without going through
+    the registration queue first.
+    """
+    control_db = get_control_database()
+
+    existing = await control_db["users"].find_one({"email": payload.email})
+    if existing:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="A user with this email already exists.",
+        )
+
+    tenant_name = payload.tenant_name.strip()
+    tenant_doc = {
+        "name": tenant_name,
+        "status": "active",
+        "created_at": utc_now(),
+    }
+    result = await control_db["tenants"].insert_one(tenant_doc)
+    tenant_id = str(result.inserted_id)
+    tenant_db_name = _tenant_db_name(tenant_id, tenant_name)
+
+    await control_db["tenants"].update_one(
+        {"_id": result.inserted_id},
+        {"$set": {"db_name": tenant_db_name}},
+    )
+
+    password_hash = hash_password(payload.password)
+    user_doc = {
+        "email": payload.email,
+        "password_hash": password_hash,
+        "tenant_id": tenant_id,
+        "role": "tenant_admin",
+        "created_at": utc_now(),
+    }
+    await control_db["users"].insert_one(user_doc)
+
+    tenant_db = get_tenant_database(tenant_db_name)
+    await tenant_db.create_collection("inventory")
+    await tenant_db.create_collection("orders")
+    await tenant_db.create_collection("stock_activity")
+
+    return {
+        "id": tenant_id,
+        "name": tenant_name,
+        "status": "active",
+        "created_at": tenant_doc["created_at"],
+    }
 
 
 @router.get("/tenants/{tenant_id}")
@@ -115,10 +188,77 @@ async def tenant_stats(tenant_id: str):
         }
 
     db = get_tenant_database(db_name)
-    inv_count = await db["inventory"].count_documents({})
-    orders_count = await db["orders"].count_documents({})
-    activity_count = await db["stock_activity"].count_documents({})
+
+    # Aggregate high-level counts
+    inv_coll = db[INVENTORY_COLLECTION]
+    orders_coll = db[ORDERS_COLLECTION]
+    stock_activity_coll = db["stock_activity"]
+
+    inv_count = await inv_coll.count_documents({})
+    orders_count = await orders_coll.count_documents({})
+    activity_count = await stock_activity_coll.count_documents({})
     user_count = await control_db["users"].count_documents({"tenant_id": tenant_id})
+
+    # Sample a few users for overview
+    users: list[dict] = []
+    users_cursor = (
+        control_db["users"]
+        .find({"tenant_id": tenant_id})
+        .sort("created_at", -1)
+        .limit(10)
+    )
+    async for doc in users_cursor:
+        users.append(
+            {
+                "id": str(doc.get("_id")),
+                "email": doc.get("email", ""),
+                "role": doc.get("role", "user"),
+                "created_at": doc.get("created_at"),
+            }
+        )
+
+    # Inventory snapshot – group by dimensions like the tenant UI, but only a few rows.
+    inventory_sample: list[dict] = []
+    inv_pipeline = [
+        {
+            "$group": {
+                "_id": {"length": "$length", "width": "$width", "height": "$height"},
+                "quantity": {"$sum": "$quantity"},
+                "firstSupplier": {"$first": "$from"},
+            }
+        },
+        {
+            "$project": {
+                "_id": 0,
+                "length": "$_id.length",
+                "width": "$_id.width",
+                "height": "$_id.height",
+                "quantity": "$quantity",
+                "from_supplier": "$firstSupplier",
+            }
+        },
+        {"$sort": {"length": -1}},
+        {"$limit": 10},
+    ]
+    async for doc in inv_coll.aggregate(inv_pipeline):
+        inventory_sample.append(doc)
+
+    # Recent orders snapshot
+    recent_orders: list[dict] = []
+    orders_cursor = (
+        orders_coll.find({})
+        .sort("created_at", -1)
+        .limit(10)
+    )
+    async for doc in orders_cursor:
+        recent_orders.append(
+            {
+                "id": str(doc.get("_id")),
+                "recipient": doc.get("recipient"),
+                "summary": doc.get("summary", {}),
+                "created_at": doc.get("created_at"),
+            }
+        )
 
     return {
         "id": tenant_id,
@@ -132,5 +272,165 @@ async def tenant_stats(tenant_id: str):
             "stock_activity_count": activity_count,
             "user_count": user_count,
         },
+        "users": users,
+        "inventory_sample": inventory_sample,
+        "recent_orders": recent_orders,
     }
+
+
+@router.post("/tenants/{tenant_id}/users")
+async def create_tenant_user(tenant_id: str, payload: TenantUserCreate):
+    """Superadmin: create a user directly under a tenant."""
+    control_db = get_control_database()
+    # Ensure tenant exists
+    try:
+        oid = ObjectId(tenant_id)
+    except Exception:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid tenant id")
+    tenant = await control_db["tenants"].find_one({"_id": oid})
+    if not tenant:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tenant not found")
+
+    # Prevent duplicate email globally
+    existing = await control_db["users"].find_one({"email": payload.email})
+    if existing:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="A user with this email already exists.",
+        )
+
+    password_hash = hash_password(payload.password)
+    doc = {
+        "email": payload.email,
+        "password_hash": password_hash,
+        "tenant_id": tenant_id,
+        "role": payload.role,
+        "created_at": utc_now(),
+    }
+    result = await control_db["users"].insert_one(doc)
+    return {
+        "id": str(result.inserted_id),
+        "email": payload.email,
+        "role": payload.role,
+        "tenant_id": tenant_id,
+    }
+
+
+# ---------- Tenant registration requests (admin approves before access) ----------
+
+
+@router.get("/tenant-requests")
+async def list_tenant_requests(status_filter: str | None = "pending"):
+    """List tenant requests. Default: only pending. Use status_filter=all for all."""
+    control_db = get_control_database()
+    query = {} if status_filter == "all" else {"status": "pending"}
+    cursor = control_db["tenant_requests"].find(query).sort("created_at", -1)
+    items = []
+    async for doc in cursor:
+        items.append({
+            "id": str(doc["_id"]),
+            "email": doc.get("email", ""),
+            "tenant_name": doc.get("tenant_name"),
+            "status": doc.get("status", "pending"),
+            "created_at": doc.get("created_at"),
+        })
+    return {"items": items}
+
+
+@router.post("/tenant-requests/{request_id}/approve")
+async def approve_tenant_request(request_id: str, payload: TenantRequestApprove):
+    """Create the tenant and first user from a pending request; mark request approved."""
+    control_db = get_control_database()
+    try:
+        oid = ObjectId(request_id)
+    except Exception:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid request id")
+
+    req = await control_db["tenant_requests"].find_one({"_id": oid})
+    if not req:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Request not found")
+    if req.get("status") != "pending":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Request is not pending (already approved or rejected)",
+        )
+
+    email = req.get("email", "").strip()
+    if not email:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Request has no email")
+
+    existing = await control_db["users"].find_one({"email": email})
+    if existing:
+        await control_db["tenant_requests"].update_one(
+            {"_id": oid},
+            {"$set": {"status": "rejected", "resolved_at": utc_now()}},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This email is already registered. Reject the request instead.",
+        )
+
+    tenant_name = (payload.tenant_name or "").strip() or (req.get("tenant_name") or "New Tenant").strip()
+    if not tenant_name:
+        tenant_name = "New Tenant"
+
+    tenant_doc = {
+        "name": tenant_name,
+        "status": "active",
+        "created_at": utc_now(),
+    }
+    result = await control_db["tenants"].insert_one(tenant_doc)
+    tenant_id = str(result.inserted_id)
+    tenant_db_name = _tenant_db_name(tenant_id, tenant_name)
+    await control_db["tenants"].update_one(
+        {"_id": result.inserted_id},
+        {"$set": {"db_name": tenant_db_name}},
+    )
+
+    password_hash = hash_password(payload.password)
+    user_doc = {
+        "email": email,
+        "password_hash": password_hash,
+        "tenant_id": tenant_id,
+        "role": "tenant_admin",
+        "created_at": utc_now(),
+    }
+    await control_db["users"].insert_one(user_doc)
+
+    tenant_db = get_tenant_database(tenant_db_name)
+    await tenant_db.create_collection("inventory")
+    await tenant_db.create_collection("orders")
+    await tenant_db.create_collection("stock_activity")
+
+    await control_db["tenant_requests"].update_one(
+        {"_id": oid},
+        {"$set": {"status": "approved", "resolved_at": utc_now(), "tenant_id": tenant_id}},
+    )
+
+    return {
+        "ok": True,
+        "tenant_id": tenant_id,
+        "message": "Tenant created. User can sign in with their email and the password you set.",
+    }
+
+
+@router.post("/tenant-requests/{request_id}/reject")
+async def reject_tenant_request(request_id: str):
+    """Mark a pending tenant request as rejected."""
+    control_db = get_control_database()
+    try:
+        oid = ObjectId(request_id)
+    except Exception:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid request id")
+
+    result = await control_db["tenant_requests"].update_one(
+        {"_id": oid, "status": "pending"},
+        {"$set": {"status": "rejected", "resolved_at": utc_now()}},
+    )
+    if result.matched_count == 0:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Request not found or not pending",
+        )
+    return {"ok": True}
 

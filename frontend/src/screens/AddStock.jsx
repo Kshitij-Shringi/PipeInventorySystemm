@@ -124,10 +124,21 @@ export default function AddStock({ refreshInventory, refreshOrders }) {
     setSelectedRows(new Set());
   };
 
+  const isRowEmpty = (row) => {
+    const hasDimsOrQty =
+      row.height !== '' || row.width !== '' || row.length !== '' || row.quantity !== '';
+    const hasSupplier = (row.from_supplier || '').trim() !== '';
+    return !hasDimsOrQty && !hasSupplier;
+  };
+
   const validate = () => {
     const seenBySupplierAndDims = new Set();
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
+       if (isRowEmpty(row)) {
+         // Allow an auto-added trailing empty row (or any fully empty row) without blocking submit.
+         continue;
+       }
       const rowNo = i + 1;
       const supplier = (row.from_supplier || '').trim() || fromSupplier.trim();
       const h = Number(row.height);
@@ -165,13 +176,18 @@ export default function AddStock({ refreshInventory, refreshOrders }) {
       }
       seenBySupplierAndDims.add(key);
     }
+    if (seenBySupplierAndDims.size === 0) {
+      showToast('Add at least one non-empty row before submitting', 'error');
+      return false;
+    }
     return true;
   };
 
   const submit = async () => {
     if (!validate()) return;
+    const effectiveRows = rows.filter((r) => !isRowEmpty(r));
     const grouped = new Map();
-    rows.forEach((r) => {
+    effectiveRows.forEach((r) => {
       const supplier = (r.from_supplier || '').trim() || fromSupplier.trim();
       if (!grouped.has(supplier)) grouped.set(supplier, []);
       grouped.get(supplier).push({
@@ -365,7 +381,7 @@ export default function AddStock({ refreshInventory, refreshOrders }) {
                   value={fromSupplier}
                   onChange={(e) => setFromSupplier(e.target.value)}
                   placeholder="Default supplier for rows without supplier"
-                  className="w-full px-4 py-3"
+                  className="w-full px-3 py-2.5 rounded-md bg-[#05060b] border border-border/60 text-sm text-white placeholder:text-muted focus:outline-none focus:ring-1 focus:ring-accent/70"
                 />
               </div>
               <div className="rounded-xl border border-border/35 bg-surface-elevated/30 px-4 py-3 text-sm text-muted">
@@ -414,11 +430,54 @@ export default function AddStock({ refreshInventory, refreshOrders }) {
                             className="h-4 w-4"
                           />
                         </td>
-                        <td className="table-td"><input type="number" step="any" min="0" value={row.height} onChange={(e) => updateRow(idx, 'height', e.target.value)} className="w-28 px-3 py-2 font-mono text-sm" /></td>
-                        <td className="table-td"><input type="number" step="any" min="0" value={row.width} onChange={(e) => updateRow(idx, 'width', e.target.value)} className="w-28 px-3 py-2 font-mono text-sm" /></td>
-                        <td className="table-td"><input type="number" step="any" min="0" value={row.length} onChange={(e) => updateRow(idx, 'length', e.target.value)} className="w-28 px-3 py-2 font-mono text-sm" /></td>
-                        <td className="table-td"><input type="number" min="1" value={row.quantity} onChange={(e) => updateRow(idx, 'quantity', e.target.value)} className="w-24 px-3 py-2 font-mono text-sm" /></td>
-                        <td className="table-td"><input type="text" value={row.from_supplier || ''} onChange={(e) => updateRow(idx, 'from_supplier', e.target.value)} placeholder={fromSupplier || 'Use default above'} className="w-44 px-3 py-2 text-sm" /></td>
+                        <td className="table-td">
+                          <input
+                            type="number"
+                            step="any"
+                            min="0"
+                            value={row.height}
+                            onChange={(e) => updateRow(idx, 'height', e.target.value)}
+                            className="w-28 px-3 py-2 rounded-md bg-[#05060b] border border-border/60 font-mono text-xs text-white focus:outline-none focus:ring-1 focus:ring-accent/70"
+                          />
+                        </td>
+                        <td className="table-td">
+                          <input
+                            type="number"
+                            step="any"
+                            min="0"
+                            value={row.width}
+                            onChange={(e) => updateRow(idx, 'width', e.target.value)}
+                            className="w-28 px-3 py-2 rounded-md bg-[#05060b] border border-border/60 font-mono text-xs text-white focus:outline-none focus:ring-1 focus:ring-accent/70"
+                          />
+                        </td>
+                        <td className="table-td">
+                          <input
+                            type="number"
+                            step="any"
+                            min="0"
+                            value={row.length}
+                            onChange={(e) => updateRow(idx, 'length', e.target.value)}
+                            className="w-28 px-3 py-2 rounded-md bg-[#05060b] border border-border/60 font-mono text-xs text-white focus:outline-none focus:ring-1 focus:ring-accent/70"
+                          />
+                        </td>
+                        <td className="table-td">
+                          <input
+                            type="number"
+                            min="1"
+                            value={row.quantity}
+                            onChange={(e) => updateRow(idx, 'quantity', e.target.value)}
+                            className="w-24 px-3 py-2 rounded-md bg-[#05060b] border border-border/60 font-mono text-xs text-white focus:outline-none focus:ring-1 focus:ring-accent/70"
+                          />
+                        </td>
+                        <td className="table-td">
+                          <input
+                            type="text"
+                            value={row.from_supplier || ''}
+                            onChange={(e) => updateRow(idx, 'from_supplier', e.target.value)}
+                            placeholder={fromSupplier || 'Use default above'}
+                            className="w-44 px-3 py-2 rounded-md bg-[#05060b] border border-border/60 text-xs text-white placeholder:text-muted focus:outline-none focus:ring-1 focus:ring-accent/70"
+                          />
+                        </td>
                         <td className="table-td text-right">
                           <button type="button" onClick={() => removeRow(idx)} className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-border/30 text-muted hover:border-danger/40 hover:text-danger">
                             <Trash2 size={14} />

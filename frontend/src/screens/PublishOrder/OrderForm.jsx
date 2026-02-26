@@ -349,7 +349,7 @@ export default function OrderForm({ onAnalyse }) {
                 value={recipient}
                 onChange={(e) => setRecipient(e.target.value)}
                 placeholder="e.g. Site A"
-                className="w-full px-4 py-3"
+                className="w-full px-3 py-2.5 rounded-md bg-[#05060b] border border-border/60 text-sm text-white placeholder:text-muted focus:outline-none focus:ring-1 focus:ring-accent/70"
               />
             </div>
 
@@ -393,10 +393,45 @@ export default function OrderForm({ onAnalyse }) {
                             className="h-4 w-4"
                           />
                         </td>
-                        <td className="table-td"><input type="number" step="any" min="0" value={row.height} onChange={(e) => updateRow(idx, 'height', e.target.value)} className="w-28 px-3 py-2 font-mono text-sm" /></td>
-                        <td className="table-td"><input type="number" step="any" min="0" value={row.width} onChange={(e) => updateRow(idx, 'width', e.target.value)} className="w-28 px-3 py-2 font-mono text-sm" /></td>
-                        <td className="table-td"><input type="number" step="any" min="0" value={row.length} onChange={(e) => updateRow(idx, 'length', e.target.value)} className="w-28 px-3 py-2 font-mono text-sm" /></td>
-                        <td className="table-td"><input type="number" min="1" value={row.quantity_needed} onChange={(e) => updateRow(idx, 'quantity_needed', e.target.value)} className="w-28 px-3 py-2 font-mono text-sm" /></td>
+                    <td className="table-td">
+                      <input
+                        type="number"
+                        step="any"
+                        min="0"
+                        value={row.height}
+                        onChange={(e) => updateRow(idx, 'height', e.target.value)}
+                        className="w-28 px-3 py-2 rounded-md bg-[#05060b] border border-border/60 font-mono text-xs text-white focus:outline-none focus:ring-1 focus:ring-accent/70"
+                      />
+                    </td>
+                    <td className="table-td">
+                      <input
+                        type="number"
+                        step="any"
+                        min="0"
+                        value={row.width}
+                        onChange={(e) => updateRow(idx, 'width', e.target.value)}
+                        className="w-28 px-3 py-2 rounded-md bg-[#05060b] border border-border/60 font-mono text-xs text-white focus:outline-none focus:ring-1 focus:ring-accent/70"
+                      />
+                    </td>
+                    <td className="table-td">
+                      <input
+                        type="number"
+                        step="any"
+                        min="0"
+                        value={row.length}
+                        onChange={(e) => updateRow(idx, 'length', e.target.value)}
+                        className="w-28 px-3 py-2 rounded-md bg-[#05060b] border border-border/60 font-mono text-xs text-white focus:outline-none focus:ring-1 focus:ring-accent/70"
+                      />
+                    </td>
+                    <td className="table-td">
+                      <input
+                        type="number"
+                        min="1"
+                        value={row.quantity_needed}
+                        onChange={(e) => updateRow(idx, 'quantity_needed', e.target.value)}
+                        className="w-24 px-3 py-2 rounded-md bg-[#05060b] border border-border/60 font-mono text-xs text-white focus:outline-none focus:ring-1 focus:ring-accent/70"
+                      />
+                    </td>
                         <td className="table-td text-right">
                           <button type="button" onClick={() => removeRow(idx)} className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-border/30 text-muted hover:border-danger/40 hover:text-danger">
                             <Trash2 size={14} />

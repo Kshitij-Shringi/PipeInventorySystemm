@@ -6,7 +6,14 @@ from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 
-from auth_models import TenantCreate, TenantUserCreate, Token, UserPublic, utc_now
+from auth_models import (
+    TenantCreate,
+    TenantRequestCreate,
+    TenantUserCreate,
+    Token,
+    UserPublic,
+    utc_now,
+)
 from database import get_control_database, get_tenant_database
 from security import (
     ACCESS_TOKEN_EXPIRE_MINUTES,
@@ -36,55 +43,39 @@ def _tenant_db_name(tenant_id: str, tenant_name: str) -> str:
     return f"pipe_inventory_{slug}_{short_id}"
 
 
-@router.post("/register-tenant", response_model=Token)
-async def register_tenant(payload: TenantCreate):
+@router.post("/request-tenant-access")
+async def request_tenant_access(payload: TenantRequestCreate):
     """
-    Register a new tenant and its first admin user, then return an access token.
+    Submit a request to become a new tenant. An admin must approve before the user gets access.
     """
     control_db = get_control_database()
 
-    existing = await control_db["users"].find_one({"email": payload.email})
-    if existing:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already registered")
+    existing_user = await control_db["users"].find_one({"email": str(payload.email)})
+    if existing_user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This email is already registered. Sign in or use a different email.",
+        )
 
-    tenant_doc = {
-        "name": payload.tenant_name,
-        "status": "active",
+    pending = await control_db["tenant_requests"].find_one(
+        {"email": str(payload.email), "status": "pending"}
+    )
+    if pending:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="A request for this email is already pending. Wait for admin approval.",
+        )
+
+    doc = {
+        "email": str(payload.email),
+        "tenant_name": (payload.tenant_name or "").strip() or None,
+        "status": "pending",
         "created_at": utc_now(),
     }
-    result = await control_db["tenants"].insert_one(tenant_doc)
-    tenant_id = str(result.inserted_id)
-    tenant_db_name = _tenant_db_name(tenant_id, payload.tenant_name)
-
-    await control_db["tenants"].update_one(
-        {"_id": result.inserted_id},
-        {"$set": {"db_name": tenant_db_name}},
-    )
-
-    password_hash = hash_password(payload.password)
-    user_doc = {
-        "email": str(payload.email),
-        "password_hash": password_hash,
-        "tenant_id": tenant_id,
-        "role": "tenant_admin",
+    await control_db["tenant_requests"].insert_one(doc)
+    return {
+        "message": "Request submitted. An admin will review and grant access. You can sign in after approval.",
     }
-    user_result = await control_db["users"].insert_one(user_doc)
-    user_id = str(user_result.inserted_id)
-
-    tenant_db = get_tenant_database(tenant_db_name)
-    await tenant_db.create_collection("inventory")
-    await tenant_db.create_collection("orders")
-    await tenant_db.create_collection("stock_activity")
-
-    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    token_data = {
-        "sub": user_id,
-        "tenant_id": tenant_id,
-        "role": "tenant_admin",
-        "email": str(payload.email),
-    }
-    access_token = create_access_token(data=token_data, expires_delta=access_token_expires)
-    return Token(access_token=access_token)
 
 
 @router.post("/login", response_model=Token)
