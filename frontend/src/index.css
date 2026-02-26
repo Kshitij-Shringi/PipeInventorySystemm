@@ -66,3 +66,12 @@ input:focus {
 .table-row-hover {
   @apply border-b border-border/60 transition-colors duration-150 hover:bg-white/[0.04];
 }
+
+/* Hide scrollbars while keeping scroll behavior */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none; /* IE and Edge */
+  scrollbar-width: none; /* Firefox */
+}

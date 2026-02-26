@@ -15,29 +15,33 @@ function decodeClaims(token) {
 }
 
 export function AuthProvider({ children }) {
-  const [token, setToken] = useState(null);
+  // Initialise from localStorage synchronously so routes see the token on first render.
+  const [token, setToken] = useState(() => {
+    if (typeof window === 'undefined') return null;
+    return window.localStorage.getItem('auth_token');
+  });
   const [email, setEmail] = useState(null);
   const [role, setRole] = useState(null);
   const [tenant, setTenant] = useState(null);
 
+  // Whenever token is present (including on initial mount), hydrate auth state and session.
   useEffect(() => {
-    const stored = window.localStorage.getItem('auth_token');
-    if (stored) {
-      setToken(stored);
-      setAuthToken(stored);
-      const claims = decodeClaims(stored);
-      setEmail(claims.email || null);
-      setRole(claims.role || null);
-      // Fetch server-side session details (tenant name, logo, etc.)
-      fetchSession()
-        .then((data) => {
-          if (data?.tenant) {
-            setTenant(data.tenant);
-          }
-        })
-        .catch(() => {});
+    if (!token) {
+      setAuthToken(null);
+      return;
     }
-  }, []);
+    setAuthToken(token);
+    const claims = decodeClaims(token);
+    setEmail(claims.email || null);
+    setRole(claims.role || null);
+    fetchSession()
+      .then((data) => {
+        if (data?.tenant) {
+          setTenant(data.tenant);
+        }
+      })
+      .catch(() => {});
+  }, [token]);
 
   function handleLogin(newToken) {
     setToken(newToken);

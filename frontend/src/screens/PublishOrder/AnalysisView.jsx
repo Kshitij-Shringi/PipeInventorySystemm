@@ -102,6 +102,10 @@ export default function AnalysisView({ analysisResponse, recipient, onExecuted, 
     return blockMap;
   }, [analysis]);
 
+  // Only the first `agg.count` entries remain after accounting for consumption by later requirements.
+  const getActiveEntriesForAgg = (agg) =>
+    (agg.sourceEntries || []).slice(0, Math.max(0, agg.count ?? 0));
+
   const makeEntryKey = (entry) => `${entry.blockIdx}-${entry.resultIdx}-${entry.pipe_id}`;
 
   // Flatten all individual remainder pieces for allDecided check (excluding consumed ones)
@@ -109,9 +113,57 @@ export default function AnalysisView({ analysisResponse, recipient, onExecuted, 
     return Array.from(aggregatedRemaindersByBlock.values()).flatMap((group) =>
       group
         .filter((agg) => agg.count > 0) // Only include remainders that weren't fully consumed
-        .flatMap((agg) => agg.sourceEntries || []),
+        .flatMap((agg) => getActiveEntriesForAgg(agg)),
     );
   }, [aggregatedRemaindersByBlock]);
+
+  // For the visual "How it will be made" section, group identical cut patterns
+  // so we don't render one row per physical pipe when they are all the same.
+  const groupedResultsByBlock = useMemo(() => {
+    return analysis.map((block) => {
+      const groupsMap = new Map();
+      const unfulfilled = [];
+
+      (block.results || []).forEach((r) => {
+        if (r.unfulfilled != null) {
+          unfulfilled.push(r);
+          return;
+        }
+
+        const key = JSON.stringify({
+          source_length: r.source_length,
+          width: r.width,
+          height: r.height,
+          from_supplier: r.from_supplier || '',
+          cut_type: r.cut_type || 'cut',
+          cut_length: r.cut_length || 0,
+          remainder: r.remainder || 0,
+        });
+
+        if (!groupsMap.has(key)) {
+          groupsMap.set(key, {
+            template: r,
+            totalCuts: 0,
+            totalExactQty: 0,
+          });
+        }
+        const group = groupsMap.get(key);
+
+        if (r.cut_type === 'exact') {
+          const qty = r.quantity_used ?? 1;
+          group.totalExactQty += qty;
+        } else {
+          const cuts = r.cuts_from_this_pipe ?? 1;
+          group.totalCuts += cuts;
+        }
+      });
+
+      return {
+        unfulfilled,
+        groups: Array.from(groupsMap.values()),
+      };
+    });
+  }, [analysis]);
 
   const setDecisionForEntry = (entry, keep) => {
     const key = makeEntryKey(entry);
@@ -123,7 +175,7 @@ export default function AnalysisView({ analysisResponse, recipient, onExecuted, 
 
   const setDecisionForGroup = (agg, keep) => {
     const updates = {};
-    (agg.sourceEntries || []).forEach((entry) => {
+    getActiveEntriesForAgg(agg).forEach((entry) => {
       const key = makeEntryKey(entry);
       updates[key] = { keep };
     });
@@ -165,7 +217,7 @@ export default function AnalysisView({ analysisResponse, recipient, onExecuted, 
     const decisions = [];
     Array.from(aggregatedRemaindersByBlock.values()).forEach((group) => {
       group.forEach((agg) => {
-        (agg.sourceEntries || []).forEach((entry) => {
+        getActiveEntriesForAgg(agg).forEach((entry) => {
           const key = makeEntryKey(entry);
           const decision = remainderDecisions[key];
           if (!decision) return;
@@ -244,29 +296,36 @@ export default function AnalysisView({ analysisResponse, recipient, onExecuted, 
             <div>
               <p className="text-xs font-sans font-semibold text-muted uppercase tracking-wider mb-3">How it will be made</p>
               <div className="space-y-4">
-                {(block.results || []).map((r, i) => {
-                  if (r.unfulfilled != null) {
-                    return (
-                      <div
-                        key={i}
-                        className="flex items-center gap-3 px-4 py-3 rounded-lg bg-danger/10 border border-danger/30 text-danger font-sans text-sm"
-                      >
-                        <AlertTriangle size={20} />
-                        Could not fulfil {r.unfulfilled} pipes — insufficient stock
-                      </div>
-                    );
-                  }
+                {/* Show any unfulfilled warnings first */}
+                {(groupedResultsByBlock[blockIdx]?.unfulfilled || []).map((r, i) => (
+                  <div
+                    key={`unfulfilled-${i}`}
+                    className="flex items-center gap-3 px-4 py-3 rounded-lg bg-danger/10 border border-danger/30 text-danger font-sans text-sm"
+                  >
+                    <AlertTriangle size={20} />
+                    Could not fulfil {r.unfulfilled} pipes — insufficient stock
+                  </div>
+                ))}
+
+                {/* Then show aggregated cut patterns */}
+                {(groupedResultsByBlock[blockIdx]?.groups || []).map((g, i) => {
+                  const r = g.template;
+                  const isExact = r.cut_type === 'exact';
                   return (
-                    <div key={i}>
+                    <div key={`group-${i}`}>
                       <PipeBar
                         sourceLength={r.source_length}
-                        usedLength={r.cut_type === 'exact' ? r.source_length * (r.quantity_used ?? 1) : (r.used_length ?? r.source_length - (r.remainder ?? 0))}
+                        usedLength={
+                          isExact
+                            ? r.source_length
+                            : r.used_length ?? r.source_length - (r.remainder ?? 0)
+                        }
                         remainder={r.remainder ?? 0}
                         fromSupplier={r.from_supplier}
                         cutType={r.cut_type}
-                        cutsFromThisPipe={r.cuts_from_this_pipe}
+                        cutsFromThisPipe={isExact ? undefined : g.totalCuts || r.cuts_from_this_pipe}
                         cutLength={r.cut_length}
-                        quantityUsed={r.quantity_used}
+                        quantityUsed={isExact ? g.totalExactQty || r.quantity_used : undefined}
                       />
                     </div>
                   );
@@ -287,14 +346,15 @@ export default function AnalysisView({ analysisResponse, recipient, onExecuted, 
                     .filter((agg) => agg.count > 0) // Only show remainders that weren't fully consumed
                     .map((agg) => {
                     const isExpanded = !!expandedGroups[agg.id];
+                    const activeEntries = getActiveEntriesForAgg(agg);
                     const allKeep =
-                      (agg.sourceEntries || []).length > 0 &&
-                      (agg.sourceEntries || []).every(
+                      activeEntries.length > 0 &&
+                      activeEntries.every(
                         (entry) => remainderDecisions[makeEntryKey(entry)]?.keep === true,
                       );
                     const allDiscard =
-                      (agg.sourceEntries || []).length > 0 &&
-                      (agg.sourceEntries || []).every(
+                      activeEntries.length > 0 &&
+                      activeEntries.every(
                         (entry) => remainderDecisions[makeEntryKey(entry)]?.keep === false,
                       );
                     return (
@@ -371,7 +431,7 @@ export default function AnalysisView({ analysisResponse, recipient, onExecuted, 
                               transition={{ duration: 0.3 }}
                               className="mt-3 w-full space-y-2 overflow-hidden"
                             >
-                              {(agg.sourceEntries || []).map((entry, idxEntry) => {
+                              {getActiveEntriesForAgg(agg).map((entry, idxEntry) => {
                               const key = makeEntryKey(entry);
                               const decision = remainderDecisions[key];
                               const keepSelected = decision?.keep === true;

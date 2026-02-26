@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { ToastProvider } from './components/Toast';
 import Navbar from './components/Navbar';
@@ -13,6 +13,7 @@ import AdminLogin from './screens/AdminLogin';
 import AdminDashboard from './screens/AdminDashboard';
 import AdminTenantDetail from './screens/AdminTenantDetail';
 import { AuthProvider, useAuth } from './AuthContext';
+import { loadAdminStoredToken } from './api';
 
 function PrivateRoute({ element }) {
   const { isAuthenticated } = useAuth();
@@ -37,6 +38,11 @@ function AppContent() {
   const [inventoryRefresh, setInventoryRefresh] = useState(0);
   const [ordersRefresh, setOrdersRefresh] = useState(0);
   const location = useLocation();
+
+  // Restore admin token from localStorage on refresh so admin stays logged in.
+  useEffect(() => {
+    loadAdminStoredToken();
+  }, []);
 
   const isAuthRoute =
     location.pathname === '/login' ||

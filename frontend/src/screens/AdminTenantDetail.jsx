@@ -7,7 +7,6 @@ import {
   adminCreateTenantUser,
   getErrorMessage,
 } from '../api';
-import PipeLoader from '../components/PipeLoader';
 
 export default function AdminTenantDetail() {
   const { tenantId } = useParams();
@@ -89,11 +88,8 @@ export default function AdminTenantDetail() {
           </div>
         )}
 
-        {(loading || !tenant) ? (
-          <section className="rounded-2xl border border-border/70 bg-surface/90 px-5 py-10 mt-2">
-            <PipeLoader label={error || 'Loading tenant details'} />
-          </section>
-        ) : (
+        {/* Show main content as soon as we have tenant data; avoid full-page loading screen */}
+        {tenant && (
           <>
             {/* Hero band */}
             <section className="rounded-2xl border border-border/70 bg-surface/90 px-5 py-4 flex flex-wrap items-center justify-between gap-4">
@@ -416,6 +412,11 @@ export default function AdminTenantDetail() {
               </div>
             </section>
           </>
+        )}
+
+        {/* Optional small text hint while first loading, without a dedicated loading screen */}
+        {!tenant && loading && (
+          <p className="mt-4 text-xs text-muted">Loading tenant details…</p>
         )}
       </div>
     </div>

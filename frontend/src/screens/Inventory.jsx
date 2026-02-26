@@ -258,7 +258,7 @@ export default function Inventory({ refreshTrigger }) {
             <table className="w-full min-w-[700px]">
               <thead>
                 <tr>
-                  <th className="table-th w-14 text-center">
+                  <th className="table-th w-12 text-center">
                     <input
                       type="checkbox"
                       checked={pageItems.length > 0 && pageItems.every((row) => selectedIds.has(row.id))}
@@ -267,11 +267,11 @@ export default function Inventory({ refreshTrigger }) {
                       className="h-4 w-4"
                     />
                   </th>
-                  <th className="table-th">Height</th>
-                  <th className="table-th">Width</th>
-                  <th className="table-th">Length</th>
-                  <th className="table-th">Quantity</th>
-                  <th className="table-th text-right">Actions</th>
+                  <th className="table-th text-left">Height</th>
+                  <th className="table-th text-left">Width</th>
+                  <th className="table-th text-left">Length</th>
+                  <th className="table-th text-left">Quantity</th>
+                  <th className="table-th text-center w-32">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -284,10 +284,10 @@ export default function Inventory({ refreshTrigger }) {
                         initial={{ opacity: 0, y: 8 }}
                         animate={{ opacity: 1, y: 0 }}
                         exit={{ opacity: 0, x: -20 }}
-                      transition={{ duration: 0.22, delay: index * 0.02 }}
-                      className={`table-row-hover ${isEditing ? 'bg-accent/10' : ''}`}
-                    >
-                        <td className="table-td text-center">
+                        transition={{ duration: 0.22, delay: index * 0.02 }}
+                        className="table-row-hover"
+                      >
+                        <td className="table-td w-12 text-center">
                           <input
                             type="checkbox"
                             checked={selectedIds.has(row.id)}
@@ -296,18 +296,63 @@ export default function Inventory({ refreshTrigger }) {
                             className="h-4 w-4"
                           />
                         </td>
-                        <td className="table-td font-mono text-accent">{isEditing ? <input type="number" className="w-24 px-3 py-2 text-sm" value={editValues.height} onChange={(e) => handleEditChange('height', e.target.value)} /> : formatNumber(row.height)}</td>
-                        <td className="table-td font-mono text-accent">{isEditing ? <input type="number" className="w-24 px-3 py-2 text-sm" value={editValues.width} onChange={(e) => handleEditChange('width', e.target.value)} /> : formatNumber(row.width)}</td>
-                        <td className="table-td font-mono text-accent">{isEditing ? <input type="number" className="w-24 px-3 py-2 text-sm" value={editValues.length} onChange={(e) => handleEditChange('length', e.target.value)} /> : formatNumber(row.length)}</td>
-                        <td className="table-td font-mono text-white">{isEditing ? <input type="number" min="1" className="w-20 px-3 py-2 text-sm" value={editValues.quantity} onChange={(e) => handleEditChange('quantity', e.target.value)} /> : formatNumber(row.quantity)}</td>
-                        <td className="table-td text-right">
+                        <td className="table-td font-mono text-accent text-left">
                           {isEditing ? (
-                            <div className="inline-flex gap-2">
+                            <input
+                              type="number"
+                              className="w-24 px-3 py-2 text-sm rounded-md border border-border/60 bg-[#05060b] text-accent focus:outline-none focus:ring-1 focus:ring-accent/70"
+                              value={editValues.height}
+                              onChange={(e) => handleEditChange('height', e.target.value)}
+                            />
+                          ) : (
+                            formatNumber(row.height)
+                          )}
+                        </td>
+                        <td className="table-td font-mono text-accent">
+                          {isEditing ? (
+                            <input
+                              type="number"
+                              className="w-24 px-3 py-2 text-sm rounded-md border border-border/60 bg-[#05060b] text-accent focus:outline-none focus:ring-1 focus:ring-accent/70"
+                              value={editValues.width}
+                              onChange={(e) => handleEditChange('width', e.target.value)}
+                            />
+                          ) : (
+                            formatNumber(row.width)
+                          )}
+                        </td>
+                        <td className="table-td font-mono text-accent">
+                          {isEditing ? (
+                            <input
+                              type="number"
+                              className="w-24 px-3 py-2 text-sm rounded-md border border-border/60 bg-[#05060b] text-accent focus:outline-none focus:ring-1 focus:ring-accent/70"
+                              value={editValues.length}
+                              onChange={(e) => handleEditChange('length', e.target.value)}
+                            />
+                          ) : (
+                            formatNumber(row.length)
+                          )}
+                        </td>
+                        <td className="table-td font-mono text-white">
+                          {isEditing ? (
+                            <input
+                              type="number"
+                              min="1"
+                              className="w-20 px-3 py-2 text-sm rounded-md border border-border/60 bg-[#05060b] text-white focus:outline-none focus:ring-1 focus:ring-accent/70"
+                              value={editValues.quantity}
+                              onChange={(e) => handleEditChange('quantity', e.target.value)}
+                            />
+                          ) : (
+                            formatNumber(row.quantity)
+                          )}
+                        </td>
+                        <td className="table-td text-center w-32">
+                          {isEditing ? (
+                            <div className="inline-flex gap-2 justify-end">
                               <button type="button" onClick={handleSave} className="rounded-lg border border-success/50 bg-success/15 px-3 py-1.5 text-xs font-bold text-success">Save</button>
                               <button type="button" onClick={cancelEdit} className="rounded-lg border border-border/40 bg-surface-elevated/35 px-3 py-1.5 text-xs font-semibold text-muted">Cancel</button>
                             </div>
                           ) : (
-                            <div className="inline-flex gap-2">
+                            <div className="inline-flex gap-2 justify-end">
                               <button type="button" onClick={() => startEdit(row)} className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-border/30 text-muted hover:border-accent/40 hover:text-accent">
                                 <Pencil size={14} />
                               </button>

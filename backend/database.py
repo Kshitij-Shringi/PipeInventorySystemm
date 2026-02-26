@@ -5,13 +5,11 @@ from motor.motor_asyncio import AsyncIOMotorClient
 
 load_dotenv()
 
-MONGO_URL = os.getenv("MONGO_URI", "mongodb://localhost:27017")
+MONGO_URL = os.getenv("MONGO_URI", "mongodb://localhost:27017/pipe_inventory")
 
 # Control-plane DB (tenants, users, global config)
-CONTROL_DB_NAME = os.getenv("MONGO_CONTROL_DB_NAME", "pipe_inventory_control")
-
-# Default single-tenant DB name (used for legacy/migration and as base for tenant DBs)
-DEFAULT_TENANT_DB_NAME = os.getenv("MONGO_DB_NAME", "pipe_inventory")
+# We now derive the control DB name from the URI instead of a separate env var.
+CONTROL_DB_NAME = "pipe_inventory_control"
 
 # Collection names (used per-DB for tenant databases)
 INVENTORY_COLLECTION = "inventory"
@@ -43,12 +41,14 @@ def get_tenant_database(db_name: str | None = None):
     """
     Return a tenant-specific database.
 
-    If db_name is omitted, we fall back to DEFAULT_TENANT_DB_NAME which corresponds
-    to the original single-tenant deployment. This is useful during migration and
-    in development before full multi-tenant provisioning is wired up.
+    If db_name is omitted, we fall back to the database specified in the MONGO_URI.
+    This corresponds to the original single-tenant deployment. This is useful during
+    migration and in development before full multi-tenant provisioning is wired up.
     """
-    name = db_name or DEFAULT_TENANT_DB_NAME
-    return _get_client()[name]
+    if db_name is not None:
+        return _get_client()[db_name]
+    # When no db_name is provided, use the default database from the URI.
+    return _get_client().get_default_database()
 
 
 def get_legacy_single_tenant_database():
@@ -58,4 +58,4 @@ def get_legacy_single_tenant_database():
     Existing routes can temporarily keep using this until they are refactored
     to accept an injected tenant database.
     """
-    return get_tenant_database(DEFAULT_TENANT_DB_NAME)
+    return get_tenant_database()

@@ -131,13 +131,25 @@ export default function OrderForm({ onAnalyse }) {
       showToast('Enter recipient / order name', 'error');
       return;
     }
+    // Ignore a trailing blank row that was auto-added for convenience.
+    const effectiveRows = rows.filter(
+      (r) =>
+        r.height !== '' ||
+        r.width !== '' ||
+        r.length !== '' ||
+        r.quantity_needed !== '',
+    );
+    if (effectiveRows.length === 0) {
+      showToast('Add at least one requirement row', 'error');
+      return;
+    }
     const reqs = [];
-    for (let i = 0; i < rows.length; i += 1) {
+    for (let i = 0; i < effectiveRows.length; i += 1) {
       const rowNo = i + 1;
-      const h = Number(rows[i].height);
-      const w = Number(rows[i].width);
-      const l = Number(rows[i].length);
-      const q = Number(rows[i].quantity_needed);
+      const h = Number(effectiveRows[i].height);
+      const w = Number(effectiveRows[i].width);
+      const l = Number(effectiveRows[i].length);
+      const q = Number(effectiveRows[i].quantity_needed);
       if (!Number.isFinite(h) || h <= 0) {
         showToast(`Row ${rowNo}: Height must be a positive number`, 'error');
         return;
@@ -165,8 +177,16 @@ export default function OrderForm({ onAnalyse }) {
     onAnalyse({ recipient: recipient.trim(), requirements: reqs });
   };
 
-  const rowCount = rows.length;
-  const totalDemand = rows.reduce((sum, row) => sum + (Number(row.quantity_needed) || 0), 0);
+  // For display/metrics, ignore the trailing blank row as well.
+  const nonEmptyRows = rows.filter(
+    (r) =>
+      r.height !== '' ||
+      r.width !== '' ||
+      r.length !== '' ||
+      r.quantity_needed !== '',
+  );
+  const rowCount = nonEmptyRows.length || (rows.length > 0 ? 1 : 0);
+  const totalDemand = nonEmptyRows.reduce((sum, row) => sum + (Number(row.quantity_needed) || 0), 0);
 
   const downloadTemplate = () => {
     downloadCsv(
