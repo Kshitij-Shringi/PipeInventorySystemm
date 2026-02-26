@@ -1,16 +1,20 @@
-import React, { useState, useEffect } from 'react';
-import { Trash2, Package, Loader2, Pencil, AlertTriangle, X } from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { Trash2, Package, Loader2, Pencil, AlertTriangle, X, Download, ListChecks } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { fetchInventory, deleteInventoryItem, updateInventoryItem, getErrorMessage } from '../api';
+import { fetchInventory, deleteInventoryItem, bulkDeleteInventoryItems, updateInventoryItem, getErrorMessage } from '../api';
 import { useToast } from '../components/Toast';
 import { formatNumber } from '../utils/format';
+import { downloadCsv } from '../utils/csv';
 
 export default function Inventory({ refreshTrigger }) {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [editingId, setEditingId] = useState(null);
   const [editValues, setEditValues] = useState({ length: '', width: '', height: '', quantity: '' });
-  const [deleteConfirm, setDeleteConfirm] = useState(null); // { id, dimensions }
+  const [deleteConfirm, setDeleteConfirm] = useState(null);
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
   const { showToast } = useToast();
 
   const load = async () => {
@@ -19,6 +23,8 @@ export default function Inventory({ refreshTrigger }) {
       const data = await fetchInventory();
       const sorted = [...data].sort((a, b) => (b.length ?? 0) - (a.length ?? 0));
       setItems(sorted);
+      setSelectedIds(new Set());
+      setCurrentPage(1);
     } catch (e) {
       showToast(getErrorMessage(e, 'Failed to load inventory'), 'error');
     } finally {
@@ -46,11 +52,10 @@ export default function Inventory({ refreshTrigger }) {
   };
 
   const handleEditChange = (field, value) => {
-    // Prevent entering 0 or negative values for quantity
     if (field === 'quantity') {
       const numValue = Number(value);
-      if (value !== '' && (isNaN(numValue) || numValue < 1)) {
-        return; // Don't update if invalid
+      if (value !== '' && (Number.isNaN(numValue) || numValue < 1)) {
+        return;
       }
     }
     setEditValues((prev) => ({ ...prev, [field]: value }));
@@ -69,12 +74,7 @@ export default function Inventory({ refreshTrigger }) {
       return;
     }
     try {
-      await updateInventoryItem(editingId, {
-        length,
-        width,
-        height,
-        quantity: numQty,
-      });
+      await updateInventoryItem(editingId, { length, width, height, quantity: numQty });
       showToast('Inventory updated', 'success');
       setEditingId(null);
       setEditValues({ length: '', width: '', height: '', quantity: '' });
@@ -87,7 +87,7 @@ export default function Inventory({ refreshTrigger }) {
   const handleDeleteClick = (row) => {
     setDeleteConfirm({
       id: row.id,
-      dimensions: `${formatNumber(row.length)} × ${formatNumber(row.width)} × ${formatNumber(row.height)}`,
+      dimensions: `${formatNumber(row.length)} x ${formatNumber(row.width)} x ${formatNumber(row.height)}`,
       quantity: row.quantity,
     });
   };
@@ -105,24 +105,91 @@ export default function Inventory({ refreshTrigger }) {
     }
   };
 
-  const handleDeleteCancel = () => {
-    setDeleteConfirm(null);
+  const toggleSelected = (id) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === items.length) {
+      setSelectedIds(new Set());
+      return;
+    }
+    setSelectedIds(new Set(items.map((i) => i.id)));
+  };
+
+  const totalPages = Math.max(1, Math.ceil(items.length / pageSize));
+  const pageStart = (currentPage - 1) * pageSize;
+  const pageItems = items.slice(pageStart, pageStart + pageSize);
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
+
+  const toggleSelectPage = () => {
+    const allPageSelected = pageItems.length > 0 && pageItems.every((row) => selectedIds.has(row.id));
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (allPageSelected) {
+        pageItems.forEach((row) => next.delete(row.id));
+      } else {
+        pageItems.forEach((row) => next.add(row.id));
+      }
+      return next;
+    });
+  };
+
+  const handleDeleteSelected = async () => {
+    if (selectedIds.size === 0) return;
+    try {
+      const ids = Array.from(selectedIds);
+      const res = await bulkDeleteInventoryItems(ids);
+      const deleted = Number(res?.deleted_count ?? ids.length);
+      showToast(`Deleted ${deleted} item(s)`, 'success');
+      setSelectedIds(new Set());
+      load();
+    } catch (e) {
+      showToast(getErrorMessage(e, 'Bulk delete failed'), 'error');
+    }
   };
 
   const uniqueSizes = new Set(items.map((i) => `${i.length}-${i.width}-${i.height}`)).size;
   const totalPipes = items.reduce((s, i) => s + (i.quantity ?? 0), 0);
+  const largestLength = useMemo(
+    () => items.reduce((mx, row) => Math.max(mx, Number(row.length) || 0), 0),
+    [items],
+  );
+
+  const exportInventory = () => {
+    if (items.length === 0) {
+      showToast('No inventory rows to export', 'error');
+      return;
+    }
+    downloadCsv(
+      'inventory-export.csv',
+      ['height', 'width', 'length', 'quantity'],
+      items.map((row) => ({
+        height: row.height,
+        width: row.width,
+        length: row.length,
+        quantity: row.quantity,
+      })),
+    );
+  };
 
   if (loading) {
     return (
-      <div className="p-8 max-w-5xl mx-auto">
+      <div className="page-shell">
         <div className="card">
-          <div className="card-header flex items-center justify-between">
-            <div className="h-6 w-32 bg-white/10 rounded animate-pulse" />
-            <div className="h-5 w-48 bg-white/10 rounded animate-pulse" />
-          </div>
-          <div className="card-body flex flex-col items-center justify-center py-16">
-            <Loader2 className="w-10 h-10 text-accent animate-spin mb-4" />
-            <p className="font-sans text-muted">Loading inventory…</p>
+          <div className="card-body flex flex-col items-center justify-center py-20">
+            <Loader2 className="mb-4 h-10 w-10 animate-spin text-accent" />
+            <p className="text-muted">Loading inventory...</p>
           </div>
         </div>
       </div>
@@ -131,213 +198,198 @@ export default function Inventory({ refreshTrigger }) {
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 20 }}
+      initial={{ opacity: 0, y: 18 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.5, ease: [0.23, 1, 0.32, 1] }}
-      className="p-8 max-w-5xl mx-auto"
+      transition={{ duration: 0.45, ease: [0.23, 1, 0.32, 1] }}
+      className="page-shell space-y-6"
     >
-      <motion.div
-        initial={{ opacity: 0, scale: 0.95 }}
-        animate={{ opacity: 1, scale: 1 }}
-        transition={{ duration: 0.4, delay: 0.1 }}
-        className="card"
-      >
-        <div className="card-header flex flex-wrap items-center justify-between gap-4">
-          <motion.div
-            initial={{ opacity: 0, x: -20 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ duration: 0.4, delay: 0.2 }}
-            className="flex items-center gap-3"
-          >
-            <motion.div
-              className="w-10 h-10 rounded-lg bg-accent/15 flex items-center justify-center"
-              whileHover={{ scale: 1.1, rotate: [0, -5, 5, 0] }}
-              transition={{ type: 'spring', stiffness: 400, damping: 17 }}
-            >
-              <Package className="w-5 h-5 text-accent" />
-            </motion.div>
-            <div>
-              <h2 className="font-sans font-bold text-lg text-white">Inventory</h2>
-              <p className="font-sans text-sm text-muted mt-0.5">Stock by dimensions</p>
+      <section className="hero-panel p-6 sm:p-7">
+        <div className="grid gap-6 xl:grid-cols-[1fr_auto] xl:items-end">
+          <div className="flex items-start gap-4">
+            <div className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-accent/40 bg-accent/10 flex-shrink-0">
+              <Package className="text-accent" size={22} />
             </div>
-          </motion.div>
-          <motion.div
-            initial={{ opacity: 0, x: 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ duration: 0.4, delay: 0.3 }}
-            className="flex items-center gap-2"
-          >
-            <motion.span
-              whileHover={{ scale: 1.05 }}
-              className="inline-flex items-center px-3 py-1 rounded-full text-xs font-sans font-medium bg-gradient-to-r from-white/10 to-white/5 text-gray-300 backdrop-blur-sm"
-            >
-              {uniqueSizes} unique size{uniqueSizes !== 1 ? 's' : ''}
-            </motion.span>
-            <motion.span
-              whileHover={{ scale: 1.05 }}
-              className="inline-flex items-center px-3 py-1 rounded-full text-xs font-sans font-medium bg-accent/20 text-accent"
-            >
-              {totalPipes} total pipe{totalPipes !== 1 ? 's' : ''}
-            </motion.span>
-          </motion.div>
+            <div>
+              <h1 className="font-display text-4xl font-bold text-white">Inventory Command</h1>
+              <p className="mt-2 max-w-xl text-sm text-muted">
+                Live stock visibility, dimensional control, and direct in-row edits.
+              </p>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+            <div className="metric-tile">
+              <p className="text-[11px] uppercase tracking-[0.15em] text-muted">Unique Sizes</p>
+              <p className="mt-1 text-2xl font-bold text-white">{uniqueSizes}</p>
+            </div>
+            <div className="metric-tile">
+              <p className="text-[11px] uppercase tracking-[0.15em] text-muted">Total Pipes</p>
+              <p className="mt-1 text-2xl font-bold text-accent">{totalPipes}</p>
+            </div>
+            <div className="metric-tile col-span-2 sm:col-span-1">
+              <p className="text-[11px] uppercase tracking-[0.15em] text-muted">Max Length</p>
+              <p className="mt-1 text-2xl font-bold text-success">{formatNumber(largestLength)}</p>
+            </div>
+          </div>
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead>
-              <tr className="border-b border-border bg-surface-elevated/50">
-                <th className="table-th">Length</th>
-                <th className="table-th">Width</th>
-                <th className="table-th">Height</th>
-                <th className="table-th">Quantity</th>
-                <th className="table-th w-24 text-right">Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              <AnimatePresence>
-                {items.map((row, index) => {
-                  const isEditing = editingId === row.id;
-                  return (
-                    <motion.tr
-                      key={row.id}
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, x: -20 }}
-                      transition={{ duration: 0.3, delay: index * 0.03 }}
-                      className={`table-row-hover transition-colors ${
-                        isEditing ? 'bg-white/[0.04] border-l-2 border-l-accent' : ''
-                      }`}
-                    >
-                    <td className="table-td font-mono text-accent font-medium">
-                      {isEditing ? (
-                        <input
-                          type="number"
-                          className="w-20 bg-surface border border-accent/60 rounded px-2 py-1 text-sm font-mono text-accent focus:outline-none focus:ring-1 focus:ring-accent"
-                          value={editValues.length}
-                          onChange={(e) => handleEditChange('length', e.target.value)}
-                        />
-                      ) : (
-                        formatNumber(row.length)
-                      )}
-                    </td>
-                    <td className="table-td font-mono text-accent">
-                      {isEditing ? (
-                        <input
-                          type="number"
-                          className="w-20 bg-surface border border-accent/60 rounded px-2 py-1 text-sm font-mono text-accent focus:outline-none focus:ring-1 focus:ring-accent"
-                          value={editValues.width}
-                          onChange={(e) => handleEditChange('width', e.target.value)}
-                        />
-                      ) : (
-                        formatNumber(row.width)
-                      )}
-                    </td>
-                    <td className="table-td font-mono text-accent">
-                      {isEditing ? (
-                        <input
-                          type="number"
-                          className="w-20 bg-surface border border-accent/60 rounded px-2 py-1 text-sm font-mono text-accent focus:outline-none focus:ring-1 focus:ring-accent"
-                          value={editValues.height}
-                          onChange={(e) => handleEditChange('height', e.target.value)}
-                        />
-                      ) : (
-                        formatNumber(row.height)
-                      )}
-                    </td>
-                    <td className="table-td font-mono font-semibold text-white">
-                      {isEditing ? (
-                        <input
-                          type="number"
-                          className="w-20 bg-surface border border-accent/60 rounded px-2 py-1 text-sm font-mono text-white focus:outline-none focus:ring-1 focus:ring-accent"
-                          value={editValues.quantity}
-                          onChange={(e) => handleEditChange('quantity', e.target.value)}
-                          min="1"
-                          step="1"
-                        />
-                      ) : (
-                        formatNumber(row.quantity)
-                      )}
-                    </td>
-                    <td className="table-td text-right">
-                      {isEditing ? (
-                        <div className="inline-flex items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={handleSave}
-                            className="px-3 py-1 rounded-lg text-xs font-sans font-semibold bg-success/20 text-success border border-success hover:bg-success/30"
-                          >
-                            Save
-                          </button>
-                          <button
-                            type="button"
-                            onClick={cancelEdit}
-                            className="px-3 py-1 rounded-lg text-xs font-sans font-semibold bg-white/5 text-muted border border-border hover:bg-white/10"
-                          >
-                            Cancel
-                          </button>
-                        </div>
-                      ) : (
-                        <motion.div
-                          initial={{ opacity: 0 }}
-                          animate={{ opacity: 1 }}
-                          className="inline-flex items-center justify-end gap-2"
-                        >
-                          <motion.button
-                            whileHover={{ scale: 1.1 }}
-                            whileTap={{ scale: 0.9 }}
-                            onClick={() => startEdit(row)}
-                            className="inline-flex items-center justify-center px-2 py-1 rounded-lg text-xs font-sans text-muted hover:text-accent hover:bg-white/5 border border-transparent hover:border-accent/40 transition-all duration-200"
-                            aria-label="Edit"
-                          >
-                            <Pencil size={16} />
-                          </motion.button>
-                          <motion.button
-                            whileHover={{ scale: 1.1 }}
-                            whileTap={{ scale: 0.9 }}
-                            onClick={() => handleDeleteClick(row)}
-                            className="btn-icon-danger inline-flex items-center justify-center"
-                            aria-label="Delete"
-                          >
-                            <Trash2 size={18} />
-                          </motion.button>
-                        </motion.div>
-                      )}
-                    </td>
-                  </motion.tr>
-                );
-              })}
-              </AnimatePresence>
-            </tbody>
-          </table>
-        </div>
-        {items.length === 0 && (
-          <motion.div
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ duration: 0.4 }}
-            className="card-body flex flex-col items-center justify-center py-16 text-center"
-          >
-            <motion.div
-              animate={{ y: [0, -10, 0] }}
-              transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
-              className="w-16 h-16 rounded-full bg-white/5 flex items-center justify-center mb-4"
-            >
-              <Package className="w-8 h-8 text-muted" />
-            </motion.div>
-            <p className="font-sans text-muted">No inventory items yet.</p>
-            <p className="font-sans text-sm text-muted/80 mt-1">Add stock to get started.</p>
-          </motion.div>
-        )}
-      </motion.div>
+      </section>
 
-      {/* Delete Confirmation Modal */}
+      <section>
+        <div className="card">
+          <div className="card-header route-line flex items-center justify-between">
+            <h2 className="section-title">Stock Matrix</h2>
+            <div className="flex flex-wrap items-center gap-2">
+              <button type="button" onClick={toggleSelectAll} className="btn-ghost inline-flex items-center gap-2 px-3 py-1.5 text-xs">
+                <ListChecks size={14} />
+                {selectedIds.size === items.length && items.length > 0 ? 'Unselect All' : 'Select All'}
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteSelected}
+                disabled={selectedIds.size === 0}
+                className="btn-ghost inline-flex items-center gap-2 px-3 py-1.5 text-xs disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Trash2 size={14} />
+                Delete Selected ({selectedIds.size})
+              </button>
+              <button type="button" onClick={exportInventory} className="btn-ghost inline-flex items-center gap-2 px-3 py-1.5 text-xs">
+                <Download size={14} />
+                Export CSV
+              </button>
+              <span className="rounded-xl border border-border/35 bg-surface-elevated/45 px-3 py-1.5 text-xs text-muted">Editable in place</span>
+            </div>
+          </div>
+          <div className="overflow-x-auto no-scrollbar">
+            <table className="w-full min-w-[700px]">
+              <thead>
+                <tr>
+                  <th className="table-th w-14 text-center">
+                    <input
+                      type="checkbox"
+                      checked={pageItems.length > 0 && pageItems.every((row) => selectedIds.has(row.id))}
+                      onChange={toggleSelectPage}
+                      aria-label="Select inventory rows on current page"
+                      className="h-4 w-4"
+                    />
+                  </th>
+                  <th className="table-th">Height</th>
+                  <th className="table-th">Width</th>
+                  <th className="table-th">Length</th>
+                  <th className="table-th">Quantity</th>
+                  <th className="table-th text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                <AnimatePresence>
+                  {pageItems.map((row, index) => {
+                    const isEditing = editingId === row.id;
+                    return (
+                      <motion.tr
+                        key={row.id}
+                        initial={{ opacity: 0, y: 8 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, x: -20 }}
+                      transition={{ duration: 0.22, delay: index * 0.02 }}
+                      className={`table-row-hover ${isEditing ? 'bg-accent/10' : ''}`}
+                    >
+                        <td className="table-td text-center">
+                          <input
+                            type="checkbox"
+                            checked={selectedIds.has(row.id)}
+                            onChange={() => toggleSelected(row.id)}
+                            aria-label={`Select inventory row ${pageStart + index + 1}`}
+                            className="h-4 w-4"
+                          />
+                        </td>
+                        <td className="table-td font-mono text-accent">{isEditing ? <input type="number" className="w-24 px-3 py-2 text-sm" value={editValues.height} onChange={(e) => handleEditChange('height', e.target.value)} /> : formatNumber(row.height)}</td>
+                        <td className="table-td font-mono text-accent">{isEditing ? <input type="number" className="w-24 px-3 py-2 text-sm" value={editValues.width} onChange={(e) => handleEditChange('width', e.target.value)} /> : formatNumber(row.width)}</td>
+                        <td className="table-td font-mono text-accent">{isEditing ? <input type="number" className="w-24 px-3 py-2 text-sm" value={editValues.length} onChange={(e) => handleEditChange('length', e.target.value)} /> : formatNumber(row.length)}</td>
+                        <td className="table-td font-mono text-white">{isEditing ? <input type="number" min="1" className="w-20 px-3 py-2 text-sm" value={editValues.quantity} onChange={(e) => handleEditChange('quantity', e.target.value)} /> : formatNumber(row.quantity)}</td>
+                        <td className="table-td text-right">
+                          {isEditing ? (
+                            <div className="inline-flex gap-2">
+                              <button type="button" onClick={handleSave} className="rounded-lg border border-success/50 bg-success/15 px-3 py-1.5 text-xs font-bold text-success">Save</button>
+                              <button type="button" onClick={cancelEdit} className="rounded-lg border border-border/40 bg-surface-elevated/35 px-3 py-1.5 text-xs font-semibold text-muted">Cancel</button>
+                            </div>
+                          ) : (
+                            <div className="inline-flex gap-2">
+                              <button type="button" onClick={() => startEdit(row)} className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-border/30 text-muted hover:border-accent/40 hover:text-accent">
+                                <Pencil size={14} />
+                              </button>
+                              <button type="button" onClick={() => handleDeleteClick(row)} className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-border/30 text-muted hover:border-danger/40 hover:text-danger">
+                                <Trash2 size={14} />
+                              </button>
+                            </div>
+                          )}
+                        </td>
+                      </motion.tr>
+                    );
+                  })}
+                </AnimatePresence>
+              </tbody>
+            </table>
+          </div>
+          {items.length > 0 && (
+            <div className="flex flex-col gap-3 border-t border-border/30 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-xs text-muted">
+                Showing {pageStart + 1}-{Math.min(pageStart + pageItems.length, items.length)} of {items.length}
+              </p>
+              <div className="flex flex-wrap items-center gap-2">
+                <label className="text-xs text-muted">
+                  Rows:
+                  <select
+                    value={pageSize}
+                    onChange={(e) => {
+                      setPageSize(Number(e.target.value));
+                      setCurrentPage(1);
+                    }}
+                    className="ml-2 rounded-lg border border-border/40 bg-surface-elevated/40 px-2 py-1 text-xs text-white"
+                  >
+                    <option value={10}>10</option>
+                    <option value={25}>25</option>
+                    <option value={50}>50</option>
+                    <option value={100}>100</option>
+                  </select>
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  disabled={currentPage === 1}
+                  className="btn-ghost px-3 py-1.5 text-xs disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Prev
+                </button>
+                <span className="text-xs text-muted">
+                  Page {currentPage} / {totalPages}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={currentPage === totalPages}
+                  className="btn-ghost px-3 py-1.5 text-xs disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          )}
+          {items.length === 0 && (
+            <div className="card-body py-16 text-center">
+              <Package className="mx-auto mb-4 text-muted" size={38} />
+              <h3 className="text-lg font-bold text-white">No inventory items</h3>
+              <p className="mt-1 text-sm text-muted">Use Add Stock to populate your matrix.</p>
+            </div>
+          )}
+        </div>
+      </section>
+
       <AnimatePresence>
         {deleteConfirm && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
-            onClick={handleDeleteCancel}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-md"
+            onClick={() => setDeleteConfirm(null)}
           >
             <motion.div
               initial={{ opacity: 0, scale: 0.9, y: 20 }}
@@ -345,58 +397,32 @@ export default function Inventory({ refreshTrigger }) {
               exit={{ opacity: 0, scale: 0.9, y: 20 }}
               transition={{ type: 'spring', stiffness: 300, damping: 25 }}
               onClick={(e) => e.stopPropagation()}
-              className="bg-surface border border-border rounded-xl shadow-card max-w-md w-full mx-4 overflow-hidden"
+              className="w-full max-w-md overflow-hidden rounded-2xl border border-danger/40 bg-surface/90 shadow-2xl"
             >
-            <div className="px-6 py-5 border-b border-border bg-surface-elevated/80 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <motion.div
-                  animate={{ rotate: [0, -10, 10, 0] }}
-                  transition={{ duration: 0.5 }}
-                  className="w-10 h-10 rounded-lg bg-danger/15 flex items-center justify-center"
-                >
-                  <AlertTriangle className="w-5 h-5 text-danger" />
-                </motion.div>
-                <h3 className="font-sans font-bold text-lg text-white">Delete Inventory Item</h3>
+              <div className="flex items-center justify-between border-b border-border/35 px-6 py-4">
+                <div className="flex items-center gap-3">
+                  <div className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-danger/15">
+                    <AlertTriangle className="text-danger" size={18} />
+                  </div>
+                  <p className="font-bold text-white">Delete Inventory Item</p>
+                </div>
+                <button onClick={() => setDeleteConfirm(null)} className="rounded-lg p-1 text-muted hover:bg-white/5 hover:text-white">
+                  <X size={18} />
+                </button>
               </div>
-              <motion.button
-                whileHover={{ scale: 1.1, rotate: 90 }}
-                whileTap={{ scale: 0.9 }}
-                onClick={handleDeleteCancel}
-                className="p-1.5 rounded-lg text-muted hover:text-white hover:bg-white/5 transition-colors"
-                aria-label="Close"
-              >
-                <X size={20} />
-              </motion.button>
-            </div>
-            <div className="p-6">
-              <p className="font-sans text-gray-300 mb-2">
-                Are you sure you want to delete this inventory item?
-              </p>
-              <div className="mt-4 p-3 rounded-lg bg-surface-elevated/50 border border-border">
-                <p className="font-mono text-sm text-accent font-medium">{deleteConfirm.dimensions}</p>
-                <p className="font-sans text-xs text-muted mt-1">Quantity: {formatNumber(deleteConfirm.quantity)}</p>
+              <div className="space-y-5 p-6">
+                <p className="text-sm text-slate-300">This will permanently remove the item from stock.</p>
+                <div className="rounded-xl border border-accent/35 bg-accent/10 p-3">
+                  <p className="font-mono text-sm text-accent">{deleteConfirm.dimensions}</p>
+                  <p className="mt-1 text-xs text-muted">Quantity: {formatNumber(deleteConfirm.quantity)}</p>
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={() => setDeleteConfirm(null)} className="flex-1 rounded-xl border border-border/35 bg-surface-elevated/30 px-4 py-2.5 text-sm font-semibold text-muted">Cancel</button>
+                  <button onClick={handleDeleteConfirm} className="flex-1 rounded-xl border border-danger/40 bg-danger/20 px-4 py-2.5 text-sm font-bold text-danger">Delete</button>
+                </div>
               </div>
-              <div className="flex gap-3 mt-6">
-                <motion.button
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                  onClick={handleDeleteCancel}
-                  className="flex-1 px-4 py-2.5 rounded-lg font-sans font-semibold text-gray-300 bg-gradient-to-r from-white/5 to-white/10 border border-border hover:from-white/10 hover:to-white/15 transition-all duration-200"
-                >
-                  Cancel
-                </motion.button>
-                <motion.button
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                  onClick={handleDeleteConfirm}
-                  className="flex-1 px-4 py-2.5 rounded-lg font-sans font-semibold text-white bg-danger hover:bg-danger-hover transition-colors shadow-card"
-                >
-                  Delete
-                </motion.button>
-              </div>
-            </div>
+            </motion.div>
           </motion.div>
-        </motion.div>
         )}
       </AnimatePresence>
     </motion.div>

@@ -1,13 +1,50 @@
-from datetime import datetime, timezone
-
-from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException
+from bson import ObjectId
 
-from auth import get_current_user
-from database import get_database, INVENTORY_COLLECTION, ORDERS_COLLECTION
-from models import ExecuteOrderRequest, OrderRequest, User
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfoNotFoundError
+
+from database import get_tenant_database, INVENTORY_COLLECTION, ORDERS_COLLECTION
+from security import get_current_active_user
+from models import OrderRequest, ExecuteOrderRequest
 
 router = APIRouter(prefix="/orders", tags=["orders"])
+try:
+    IST = ZoneInfo("Asia/Kolkata")
+except ZoneInfoNotFoundError:
+    # Fallback for Windows/Python environments missing tzdata package.
+    IST = timezone(timedelta(hours=5, minutes=30), name="IST")
+
+
+def _parse_date_start_ist(value: str):
+    try:
+        dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=IST)
+        else:
+            dt = dt.astimezone(IST)
+        return dt.replace(hour=0, minute=0, second=0, microsecond=0)
+    except Exception:
+        return None
+
+
+def _parse_date_end_ist_exclusive(value: str):
+    start = _parse_date_start_ist(value)
+    if start is None:
+        return None
+    return start + timedelta(days=1)
+
+
+def _to_ist_iso(value: datetime) -> str:
+    # MongoDB often returns naive datetime values; treat them as UTC instants.
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone(IST).isoformat(timespec="seconds")
+
+
+def _now_ist_iso() -> str:
+    return datetime.now(IST).isoformat(timespec="seconds")
 
 
 def _doc_to_item(doc: dict) -> dict:
@@ -15,8 +52,6 @@ def _doc_to_item(doc: dict) -> dict:
     doc["id"] = str(doc.pop("_id"))
     if "from" in doc:
         doc["from_supplier"] = doc.pop("from")
-    # Do not expose tenant_id in API responses
-    doc.pop("tenant_id", None)
     return doc
 
 
@@ -125,7 +160,7 @@ async def list_orders(
     end_date: str = None,
     page: int = 1,
     page_size: int = 10,
-    current_user: User = Depends(get_current_user),
+    current_user: dict = Depends(get_current_active_user),
 ):
     """
     List orders with date filtering and pagination.
@@ -133,33 +168,22 @@ async def list_orders(
     page: Page number (1-indexed)
     page_size: Items per page
     """
-    from datetime import datetime
-
-    db = get_database()
+    db_name = current_user.get("tenant_db_name")
+    db = get_tenant_database(db_name)
     coll = db[ORDERS_COLLECTION]
-    tenant_id = current_user.tenant_id
+    
     # Build date filter
     date_filter = {}
     if start_date:
-        try:
-            start_dt = datetime.fromisoformat(start_date.replace("Z", "+00:00"))
-            date_filter["$gte"] = start_dt
-        except Exception:
-            pass
+        start_dt = _parse_date_start_ist(start_date)
+        if start_dt is not None:
+            date_filter["$gte"] = start_dt.isoformat(timespec="seconds")
     if end_date:
-        try:
-            end_dt = datetime.fromisoformat(end_date.replace("Z", "+00:00"))
-            # Add one day to include the entire end date
-            from datetime import timedelta
-            end_dt = end_dt + timedelta(days=1)
-            if "$gte" in date_filter:
-                date_filter["$lte"] = end_dt
-            else:
-                date_filter["$lte"] = end_dt
-        except Exception:
-            pass
+        end_dt = _parse_date_end_ist_exclusive(end_date)
+        if end_dt is not None:
+            date_filter["$lt"] = end_dt.isoformat(timespec="seconds")
     
-    query = {"tenant_id": tenant_id}
+    query = {}
     if date_filter:
         query["created_at"] = date_filter
     
@@ -175,8 +199,11 @@ async def list_orders(
     async for doc in cursor:
         doc = dict(doc)
         doc["id"] = str(doc.pop("_id"))
-        if "created_at" in doc and hasattr(doc["created_at"], "isoformat"):
-            doc["created_at"] = doc["created_at"].isoformat()
+        if "created_at" in doc:
+            if isinstance(doc["created_at"], datetime):
+                doc["created_at"] = _to_ist_iso(doc["created_at"])
+            else:
+                doc["created_at"] = str(doc["created_at"])
         orders.append(doc)
     
     return {
@@ -189,15 +216,15 @@ async def list_orders(
 
 
 @router.post("/analyse")
-async def analyse_order(request: OrderRequest, current_user: User = Depends(get_current_user)):
+async def analyse_order(request: OrderRequest, current_user: dict = Depends(get_current_active_user)):
     """
     Run matching engine on requirements; does NOT modify DB.
     Uses remainders from earlier requirements to fulfill later ones.
     """
-    db = get_database()
+    db_name = current_user.get("tenant_db_name")
+    db = get_tenant_database(db_name)
     coll = db[INVENTORY_COLLECTION]
-    tenant_id = current_user.tenant_id
-    cursor = coll.find({"tenant_id": tenant_id})
+    cursor = coll.find({})
     inventory = []
     async for doc in cursor:
         inventory.append(_doc_to_item(doc))
@@ -289,16 +316,16 @@ async def analyse_order(request: OrderRequest, current_user: User = Depends(get_
 
 
 @router.post("/execute")
-async def execute_order(request: ExecuteOrderRequest, current_user: User = Depends(get_current_user)):
+async def execute_order(request: ExecuteOrderRequest, current_user: dict = Depends(get_current_active_user)):
     """
     Deduct quantities from used pipes (delete if quantity hits 0).
     Insert remainder pipes where keep=True.
     Save order to orders collection. Return order summary.
     """
-    db = get_database()
+    db_name = current_user.get("tenant_db_name")
+    db = get_tenant_database(db_name)
     inventory_coll = db[INVENTORY_COLLECTION]
     orders_coll = db[ORDERS_COLLECTION]
-    tenant_id = current_user.tenant_id
 
     pipes_consumed = 0
     returned_to_stock = 0
@@ -315,18 +342,15 @@ async def execute_order(request: ExecuteOrderRequest, current_user: User = Depen
             oid = ObjectId(pipe_id)
         except Exception:
             continue
-        doc = await inventory_coll.find_one({"_id": oid, "tenant_id": tenant_id})
+        doc = await inventory_coll.find_one({"_id": oid})
         if not doc:
             continue
         new_qty = doc["quantity"] - quantity_to_deduct
         pipes_consumed += quantity_to_deduct
         if new_qty <= 0:
-            await inventory_coll.delete_one({"_id": oid, "tenant_id": tenant_id})
+            await inventory_coll.delete_one({"_id": oid})
         else:
-            await inventory_coll.update_one(
-                {"_id": oid, "tenant_id": tenant_id},
-                {"$set": {"quantity": new_qty}},
-            )
+            await inventory_coll.update_one({"_id": oid}, {"$set": {"quantity": new_qty}})
         # Format dimensions - remove .0 for whole numbers
         def fmt_dim(d):
             if d == int(d):
@@ -363,16 +387,12 @@ async def execute_order(request: ExecuteOrderRequest, current_user: User = Depen
         # Merge by dimensions + supplier so same pipe size shows as one row with total quantity
         await inventory_coll.update_one(
             {
-                "tenant_id": tenant_id,
                 "from": rd.from_supplier,
                 "length": rd.remainder_length,
                 "width": rd.width,
                 "height": rd.height,
             },
-            {
-                "$inc": {"quantity": 1},
-                "$setOnInsert": {"tenant_id": tenant_id},
-            },
+            {"$inc": {"quantity": 1}},
             upsert=True,
         )
         # Track for order record
@@ -386,14 +406,13 @@ async def execute_order(request: ExecuteOrderRequest, current_user: User = Depen
         "discarded": discarded,
     }
     order_record = {
-        "tenant_id": tenant_id,
         "recipient": request.recipient,
         "summary": summary,
         "fulfillment_detail": fulfillment_detail,
         "returned_pipes_detail": list(returned_map.values()),  # List of returned pipes with dimensions
         "discarded_pipes_detail": list(discarded_map.values()),  # List of discarded pipes with dimensions
         "analysis": request.analysis if hasattr(request, 'analysis') else [],  # Store analysis for visualization
-        "created_at": datetime.now(timezone.utc),
+        "created_at": _now_ist_iso(),
     }
     result = await orders_coll.insert_one(order_record)
     order_record["id"] = str(result.inserted_id)

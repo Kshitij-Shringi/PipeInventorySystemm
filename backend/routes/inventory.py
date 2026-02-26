@@ -1,13 +1,19 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfoNotFoundError
 
-from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException
+from bson import ObjectId
 
-from auth import get_current_user
-from database import get_database, INVENTORY_COLLECTION, STOCK_ACTIVITY_COLLECTION
-from models import User
+from database import get_tenant_database, INVENTORY_COLLECTION, STOCK_ACTIVITY_COLLECTION
+from security import get_current_active_user
 
 router = APIRouter(prefix="/inventory", tags=["inventory"])
+try:
+    IST = ZoneInfo("Asia/Kolkata")
+except ZoneInfoNotFoundError:
+    # Fallback for Windows/Python environments missing tzdata package.
+    IST = timezone(timedelta(hours=5, minutes=30), name="IST")
 
 
 def _doc_to_item(doc: dict) -> dict:
@@ -16,23 +22,50 @@ def _doc_to_item(doc: dict) -> dict:
     doc["id"] = str(doc.pop("_id"))
     if "from" in doc:
         doc["from_supplier"] = doc.pop("from")
-    # Do not expose tenant_id in API responses
-    doc.pop("tenant_id", None)
     return doc
 
 
+def _parse_date_start_ist(value: str):
+    try:
+        dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=IST)
+        else:
+            dt = dt.astimezone(IST)
+        return dt.replace(hour=0, minute=0, second=0, microsecond=0)
+    except Exception:
+        return None
+
+
+def _parse_date_end_ist_exclusive(value: str):
+    start = _parse_date_start_ist(value)
+    if start is None:
+        return None
+    return start + timedelta(days=1)
+
+
+def _to_ist_iso(value: datetime) -> str:
+    # MongoDB often returns naive datetime values; treat them as UTC instants.
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone(IST).isoformat(timespec="seconds")
+
+
+def _now_ist_iso() -> str:
+    return datetime.now(IST).isoformat(timespec="seconds")
+
+
 @router.get("")
-async def get_inventory(current_user: User = Depends(get_current_user)):
+async def get_inventory(current_user: dict = Depends(get_current_active_user)):
     """
     Return inventory aggregated by (length, width, height) only - ignoring supplier.
     All pipes with same dimensions are combined into one row with total quantity.
     Uses one document id per group for delete (deleting removes one document from that group).
     """
-    db = get_database()
+    db_name = current_user.get("tenant_db_name")
+    db = get_tenant_database(db_name)
     coll = db[INVENTORY_COLLECTION]
-    tenant_id = current_user.tenant_id
     pipeline = [
-        {"$match": {"tenant_id": tenant_id}},
         {
             "$group": {
                 "_id": {"length": "$length", "width": "$width", "height": "$height"},
@@ -60,7 +93,7 @@ async def get_inventory(current_user: User = Depends(get_current_user)):
 
 
 @router.post("/add")
-async def add_stock(body: dict, current_user: User = Depends(get_current_user)):
+async def add_stock(body: dict, current_user: dict = Depends(get_current_active_user)):
     """
     body: { from_supplier: str, pipes: [{ length, width, height, quantity }] }
     For each pipe: if matching from_supplier+L+W+H exists → $inc quantity, else insert.
@@ -71,13 +104,14 @@ async def add_stock(body: dict, current_user: User = Depends(get_current_user)):
     if not from_supplier or not pipes:
         raise HTTPException(status_code=400, detail="from_supplier and pipes required")
 
-    db = get_database()
+    db_name = current_user.get("tenant_db_name")
+    db = get_tenant_database(db_name)
     coll = db[INVENTORY_COLLECTION]
     activity_coll = db[STOCK_ACTIVITY_COLLECTION]
-    tenant_id = current_user.tenant_id
 
     total_added = 0
     pipes_added = []
+    seen_dims = set()
 
     for p in pipes:
         try:
@@ -93,18 +127,20 @@ async def add_stock(body: dict, current_user: User = Depends(get_current_user)):
         if quantity < 1:
             raise HTTPException(status_code=400, detail="Quantity must be positive")
 
+        dim_key = (height, width, length)
+        if dim_key in seen_dims:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Duplicate dimensions found for the same supplier in one request. "
+                    "Use a different supplier if H x W x L is the same."
+                ),
+            )
+        seen_dims.add(dim_key)
+
         await coll.update_one(
-            {
-                "tenant_id": tenant_id,
-                "from": from_supplier,
-                "length": length,
-                "width": width,
-                "height": height,
-            },
-            {
-                "$inc": {"quantity": quantity},
-                "$setOnInsert": {"tenant_id": tenant_id},
-            },
+            {"from": from_supplier, "length": length, "width": width, "height": height},
+            {"$inc": {"quantity": quantity}},
             upsert=True,
         )
         total_added += quantity
@@ -117,11 +153,10 @@ async def add_stock(body: dict, current_user: User = Depends(get_current_user)):
 
     # Log activity
     await activity_coll.insert_one({
-        "tenant_id": tenant_id,
         "from_supplier": from_supplier,
         "pipes": pipes_added,
         "total_quantity": total_added,
-        "created_at": datetime.now(timezone.utc),
+        "created_at": _now_ist_iso(),
     })
 
     return {"ok": True, "message": "Stock added"}
@@ -133,7 +168,7 @@ async def get_stock_activity(
     end_date: str = None,
     page: int = 1,
     page_size: int = 10,
-    current_user: User = Depends(get_current_user),
+    current_user: dict = Depends(get_current_active_user),
 ):
     """
     Get stock addition activity with date filtering and pagination.
@@ -141,33 +176,22 @@ async def get_stock_activity(
     page: Page number (1-indexed)
     page_size: Items per page
     """
-    from datetime import datetime, timedelta
-    
-    db = get_database()
+    db_name = current_user.get("tenant_db_name")
+    db = get_tenant_database(db_name)
     coll = db[STOCK_ACTIVITY_COLLECTION]
-    tenant_id = current_user.tenant_id
     
     # Build date filter
     date_filter = {}
     if start_date:
-        try:
-            start_dt = datetime.fromisoformat(start_date.replace("Z", "+00:00"))
-            date_filter["$gte"] = start_dt
-        except Exception:
-            pass
+        start_dt = _parse_date_start_ist(start_date)
+        if start_dt is not None:
+            date_filter["$gte"] = start_dt.isoformat(timespec="seconds")
     if end_date:
-        try:
-            end_dt = datetime.fromisoformat(end_date.replace("Z", "+00:00"))
-            # Add one day to include the entire end date
-            end_dt = end_dt + timedelta(days=1)
-            if "$gte" in date_filter:
-                date_filter["$lte"] = end_dt
-            else:
-                date_filter["$lte"] = end_dt
-        except Exception:
-            pass
+        end_dt = _parse_date_end_ist_exclusive(end_date)
+        if end_dt is not None:
+            date_filter["$lt"] = end_dt.isoformat(timespec="seconds")
     
-    query = {"tenant_id": tenant_id}
+    query = {}
     if date_filter:
         query["created_at"] = date_filter
     
@@ -183,8 +207,11 @@ async def get_stock_activity(
     async for doc in cursor:
         doc = dict(doc)
         doc["id"] = str(doc.pop("_id"))
-        if "created_at" in doc and hasattr(doc["created_at"], "isoformat"):
-            doc["created_at"] = doc["created_at"].isoformat()
+        if "created_at" in doc:
+            if isinstance(doc["created_at"], datetime):
+                doc["created_at"] = _to_ist_iso(doc["created_at"])
+            else:
+                doc["created_at"] = str(doc["created_at"])
         activities.append(doc)
     
     return {
@@ -197,23 +224,51 @@ async def get_stock_activity(
 
 
 @router.delete("/{id}")
-async def delete_inventory_item(id: str, current_user: User = Depends(get_current_user)):
+async def delete_inventory_item(id: str, current_user: dict = Depends(get_current_active_user)):
     """Delete a single underlying inventory document by id."""
     try:
         oid = ObjectId(id)
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid id")
-    db = get_database()
+    db_name = current_user.get("tenant_db_name")
+    db = get_tenant_database(db_name)
     coll = db[INVENTORY_COLLECTION]
-    tenant_id = current_user.tenant_id
-    result = await coll.delete_one({"_id": oid, "tenant_id": tenant_id})
+    result = await coll.delete_one({"_id": oid})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Item not found")
     return {"ok": True}
 
 
+@router.post("/bulk-delete")
+async def bulk_delete_inventory_items(body: dict, current_user: dict = Depends(get_current_active_user)):
+    """Delete many inventory documents in one request."""
+    ids = body.get("ids")
+    if not isinstance(ids, list) or len(ids) == 0:
+        raise HTTPException(status_code=400, detail="ids must be a non-empty array")
+
+    object_ids = []
+    invalid_ids = []
+    for raw_id in ids:
+        try:
+            object_ids.append(ObjectId(str(raw_id)))
+        except Exception:
+            invalid_ids.append(str(raw_id))
+
+    if invalid_ids:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid id(s): {', '.join(invalid_ids[:10])}",
+        )
+
+    db_name = current_user.get("tenant_db_name")
+    db = get_tenant_database(db_name)
+    coll = db[INVENTORY_COLLECTION]
+    result = await coll.delete_many({"_id": {"$in": object_ids}})
+    return {"ok": True, "deleted_count": result.deleted_count}
+
+
 @router.put("/{id}")
-async def update_inventory_item(id: str, body: dict, current_user: User = Depends(get_current_user)):
+async def update_inventory_item(id: str, body: dict, current_user: dict = Depends(get_current_active_user)):
     """
     Update a single underlying inventory document by id.
 
@@ -224,10 +279,10 @@ async def update_inventory_item(id: str, body: dict, current_user: User = Depend
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid id")
 
-    db = get_database()
+    db_name = current_user.get("tenant_db_name")
+    db = get_tenant_database(db_name)
     coll = db[INVENTORY_COLLECTION]
-    tenant_id = current_user.tenant_id
-    doc = await coll.find_one({"_id": oid, "tenant_id": tenant_id})
+    doc = await coll.find_one({"_id": oid})
     if not doc:
         raise HTTPException(status_code=404, detail="Item not found")
 
@@ -249,7 +304,7 @@ async def update_inventory_item(id: str, body: dict, current_user: User = Depend
         raise HTTPException(status_code=400, detail="quantity must be non-negative")
 
     await coll.update_one(
-        {"_id": oid, "tenant_id": tenant_id},
+        {"_id": oid},
         {
             "$set": {
                 "length": length,
@@ -260,5 +315,5 @@ async def update_inventory_item(id: str, body: dict, current_user: User = Depend
         },
     )
 
-    updated = await coll.find_one({"_id": oid, "tenant_id": tenant_id})
+    updated = await coll.find_one({"_id": oid})
     return _doc_to_item(updated)
