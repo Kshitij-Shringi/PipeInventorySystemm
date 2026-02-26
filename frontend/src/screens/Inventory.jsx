@@ -5,6 +5,7 @@ import { fetchInventory, deleteInventoryItem, bulkDeleteInventoryItems, updateIn
 import { useToast } from '../components/Toast';
 import { formatNumber } from '../utils/format';
 import { downloadCsv } from '../utils/csv';
+import PipeLoader from '../components/PipeLoader';
 
 export default function Inventory({ refreshTrigger }) {
   const [items, setItems] = useState([]);
@@ -186,12 +187,7 @@ export default function Inventory({ refreshTrigger }) {
   if (loading) {
     return (
       <div className="page-shell">
-        <div className="card">
-          <div className="card-body flex flex-col items-center justify-center py-20">
-            <Loader2 className="mb-4 h-10 w-10 animate-spin text-accent" />
-            <p className="text-muted">Loading inventory...</p>
-          </div>
-        </div>
+        <PipeLoader label="Loading inventory" />
       </div>
     );
   }
