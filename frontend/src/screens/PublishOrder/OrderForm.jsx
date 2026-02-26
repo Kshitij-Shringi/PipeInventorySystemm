@@ -191,10 +191,10 @@ export default function OrderForm({ onAnalyse }) {
   const downloadTemplate = () => {
     downloadCsv(
       'publish-order-import-template.csv',
-      ['recipient', 'height', 'width', 'length', 'quantity_needed'],
+      ['recipient', 'height', 'width', 'length', 'quantity'],
       [
-        { recipient: 'Site A', height: 40, width: 40, length: 80, quantity_needed: 5 },
-        { recipient: 'Site A', height: 50, width: 40, length: 100, quantity_needed: 3 },
+        { recipient: 'Site A', height: 40, width: 40, length: 80, quantity: 5 },
+        { recipient: 'Site A', height: 50, width: 40, length: 100, quantity: 3 },
       ],
     );
   };
@@ -211,24 +211,29 @@ export default function OrderForm({ onAnalyse }) {
       const text = await readFileText(file);
       const parsed = parseCsvToObjects(text).map(normalizeObjectKeys);
       if (parsed.length === 0) {
-        showToast('CSV is empty', 'error');
+        showToast('CSV is empty — please use the downloaded template', 'error');
         return;
       }
       const firstKeys = Object.keys(parsed[0] || {});
       const has = (k) => firstKeys.includes(k);
-      const quantityKey = has('quantity_needed')
-        ? 'quantity_needed'
-        : has('quantity')
-          ? 'quantity'
-          : has('qty_needed')
-            ? 'qty_needed'
-            : has('qty')
-              ? 'qty'
-              : '';
-      const missing = ['height', 'width', 'length'].filter((k) => !has(k));
-      if (missing.length > 0 || !quantityKey) {
-        const missingMsg = [...missing, ...(quantityKey ? [] : ['quantity_needed (or quantity)'])].join(', ');
-        showToast(`CSV missing columns: ${missingMsg}`, 'error');
+
+      // Reject Add Stock template files — they have from_supplier but no recipient
+      if (has('from_supplier')) {
+        showToast(
+          'Please use the Publish Order template.',
+          'error',
+        );
+        return;
+      }
+
+      // Strictly require the Publish Order template columns
+      const required = ['height', 'width', 'length', 'quantity'];
+      const missing = required.filter((k) => !has(k));
+      if (missing.length > 0) {
+        showToast(
+          `Wrong template. Download the Publish Order template — it needs columns: ${required.join(', ')}.`,
+          'error',
+        );
         return;
       }
 
@@ -242,7 +247,7 @@ export default function OrderForm({ onAnalyse }) {
         const height = Number(row.height);
         const width = Number(row.width);
         const length = Number(row.length);
-        const quantityNeeded = Number(row[quantityKey]);
+        const quantity = Number(row.quantity);
         const rowRecipient = (row.recipient || '').toString().trim();
 
         if (rowRecipient) {
@@ -251,19 +256,19 @@ export default function OrderForm({ onAnalyse }) {
         }
 
         if (!Number.isFinite(height) || height <= 0) {
-          showToast(`CSV row ${rowNo}: "height" must be a positive number`, 'error');
+          showToast(`Row ${rowNo}: "height" must be a positive number`, 'error');
           return;
         }
         if (!Number.isFinite(width) || width <= 0) {
-          showToast(`CSV row ${rowNo}: "width" must be a positive number`, 'error');
+          showToast(`Row ${rowNo}: "width" must be a positive number`, 'error');
           return;
         }
         if (!Number.isFinite(length) || length <= 0) {
-          showToast(`CSV row ${rowNo}: "length" must be a positive number`, 'error');
+          showToast(`Row ${rowNo}: "length" must be a positive number`, 'error');
           return;
         }
-        if (!Number.isFinite(quantityNeeded) || quantityNeeded < 1 || !Number.isInteger(quantityNeeded)) {
-          showToast(`CSV row ${rowNo}: "${quantityKey}" must be a whole number >= 1`, 'error');
+        if (!Number.isFinite(quantity) || quantity < 1 || !Number.isInteger(quantity)) {
+          showToast(`Row ${rowNo}: "quantity" must be a whole number ≥ 1`, 'error');
           return;
         }
 
@@ -271,21 +276,24 @@ export default function OrderForm({ onAnalyse }) {
           height: String(height),
           width: String(width),
           length: String(length),
-          quantity_needed: String(Math.floor(quantityNeeded)),
+          quantity_needed: String(Math.floor(quantity)),
         });
       }
 
       if (recipientSet.size > 1) {
-        showToast(`CSV has multiple recipients (${Array.from(recipientSet).join(', ')}). Use one recipient for the full file.`, 'error');
+        showToast(
+          `CSV has multiple recipients (${Array.from(recipientSet).join(', ')}). Use a single recipient per file.`,
+          'error',
+        );
         return;
       }
 
       setRows(importedRows.length > 0 ? importedRows : [emptyReq()]);
       setSelectedRows(new Set());
       if (importedRecipient) setRecipient(importedRecipient);
-      showToast(`Imported ${importedRows.length} requirements`, 'success');
+      showToast(`Imported ${importedRows.length} requirement${importedRows.length !== 1 ? 's' : ''}`, 'success');
     } catch (e) {
-      showToast('Failed to import CSV', 'error');
+      showToast('Failed to import CSV — ensure the file matches the Publish Order template', 'error');
     }
   };
 
@@ -356,9 +364,6 @@ export default function OrderForm({ onAnalyse }) {
               </button>
             </div>
           </div>
-          <div className="px-8 pt-3 text-xs text-muted">
-            CSV import rule: use one recipient/order name for the whole file; add multiple rows for requirements.
-          </div>
           <input ref={fileInputRef} type="file" accept=".csv,text/csv" className="hidden" onChange={handleImportFile} />
 
           <div className="card-body space-y-6">
@@ -377,7 +382,7 @@ export default function OrderForm({ onAnalyse }) {
               <table className="w-full min-w-[760px]">
                 <thead>
                   <tr>
-                    <th className="table-th w-14 text-center">
+                    <th className="table-th w-12 text-center">
                       <input
                         type="checkbox"
                         checked={rows.length > 0 && selectedRows.size === rows.length}
@@ -386,11 +391,11 @@ export default function OrderForm({ onAnalyse }) {
                         className="h-4 w-4"
                       />
                     </th>
-                    <th className="table-th">Height</th>
-                    <th className="table-th">Width</th>
-                    <th className="table-th">Length</th>
-                    <th className="table-th">Qty Needed</th>
-                    <th className="table-th text-right">Action</th>
+                    <th className="table-th text-left">Height</th>
+                    <th className="table-th text-left">Width</th>
+                    <th className="table-th text-left">Length</th>
+                    <th className="table-th text-left">Qty Needed</th>
+                    <th className="table-th text-center w-32">Action</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -404,7 +409,7 @@ export default function OrderForm({ onAnalyse }) {
                         transition={{ duration: 0.2 }}
                         className="table-row-hover"
                       >
-                        <td className="table-td text-center">
+                        <td className="table-td w-12 text-center">
                           <input
                             type="checkbox"
                             checked={selectedRows.has(idx)}
@@ -413,7 +418,7 @@ export default function OrderForm({ onAnalyse }) {
                             className="h-4 w-4"
                           />
                         </td>
-                    <td className="table-td">
+                    <td className="table-td text-left">
                       <input
                         type="number"
                         step="any"
@@ -423,7 +428,7 @@ export default function OrderForm({ onAnalyse }) {
                         className="w-28 px-3 py-2 rounded-md bg-[#05060b] border border-border/60 font-mono text-xs text-white focus:outline-none focus:ring-1 focus:ring-accent/70"
                       />
                     </td>
-                    <td className="table-td">
+                    <td className="table-td text-left">
                       <input
                         type="number"
                         step="any"
@@ -433,7 +438,7 @@ export default function OrderForm({ onAnalyse }) {
                         className="w-28 px-3 py-2 rounded-md bg-[#05060b] border border-border/60 font-mono text-xs text-white focus:outline-none focus:ring-1 focus:ring-accent/70"
                       />
                     </td>
-                    <td className="table-td">
+                    <td className="table-td text-left">
                       <input
                         type="number"
                         step="any"
@@ -443,7 +448,7 @@ export default function OrderForm({ onAnalyse }) {
                         className="w-28 px-3 py-2 rounded-md bg-[#05060b] border border-border/60 font-mono text-xs text-white focus:outline-none focus:ring-1 focus:ring-accent/70"
                       />
                     </td>
-                    <td className="table-td">
+                    <td className="table-td text-left">
                       <input
                         type="number"
                         min="1"
@@ -452,7 +457,7 @@ export default function OrderForm({ onAnalyse }) {
                         className="w-24 px-3 py-2 rounded-md bg-[#05060b] border border-border/60 font-mono text-xs text-white focus:outline-none focus:ring-1 focus:ring-accent/70"
                       />
                     </td>
-                        <td className="table-td text-right">
+                        <td className="table-td text-center w-32">
                           <button type="button" onClick={() => removeRow(idx)} className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-border/30 text-muted hover:border-danger/40 hover:text-danger">
                             <Trash2 size={14} />
                           </button>

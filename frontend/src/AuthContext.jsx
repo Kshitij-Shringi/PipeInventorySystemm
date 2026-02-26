@@ -15,13 +15,16 @@ function decodeClaims(token) {
 }
 
 export function AuthProvider({ children }) {
-  // Initialise from localStorage synchronously so routes see the token on first render.
+  // Initialise from localStorage synchronously so routes and guards see auth on first render.
   const [token, setToken] = useState(() => {
     if (typeof window === 'undefined') return null;
     return window.localStorage.getItem('auth_token');
   });
-  const [email, setEmail] = useState(null);
-  const [role, setRole] = useState(null);
+  // Decode basic claims (email, role) immediately from the stored token to avoid any flicker
+  // on first paint for protected/tenant-admin routes.
+  const initialClaims = token ? decodeClaims(token) : {};
+  const [email, setEmail] = useState(initialClaims.email || null);
+  const [role, setRole] = useState(initialClaims.role || null);
   const [tenant, setTenant] = useState(null);
 
   // Whenever token is present (including on initial mount), hydrate auth state and session.

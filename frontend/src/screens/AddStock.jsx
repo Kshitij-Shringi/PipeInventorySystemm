@@ -243,9 +243,23 @@ export default function AddStock({ refreshInventory, refreshOrders }) {
       }
       const firstKeys = Object.keys(parsedRows[0] || {});
       const has = (k) => firstKeys.includes(k);
-      const missing = ['height', 'width', 'length', 'quantity'].filter((k) => !has(k));
+
+      // Reject Publish Order template files — they have recipient but no from_supplier
+      if (has('recipient')) {
+        showToast(
+          'Please use the Add Stock template.',
+          'error',
+        );
+        return;
+      }
+
+      const required = ['height', 'width', 'length', 'quantity'];
+      const missing = required.filter((k) => !has(k));
       if (missing.length > 0) {
-        showToast(`CSV missing columns: ${missing.join(', ')}`, 'error');
+        showToast(
+          `Wrong template. Download the Add Stock template — it needs columns: ${required.join(', ')}.`,
+          'error',
+        );
         return;
       }
 
@@ -393,7 +407,7 @@ export default function AddStock({ refreshInventory, refreshOrders }) {
               <table className="w-full min-w-[760px]">
                 <thead>
                   <tr>
-                    <th className="table-th w-14 text-center">
+                    <th className="table-th w-12 text-center">
                       <input
                         type="checkbox"
                         checked={rows.length > 0 && selectedRows.size === rows.length}
@@ -402,12 +416,12 @@ export default function AddStock({ refreshInventory, refreshOrders }) {
                         className="h-4 w-4"
                       />
                     </th>
-                    <th className="table-th">Height</th>
-                    <th className="table-th">Width</th>
-                    <th className="table-th">Length</th>
-                    <th className="table-th">Quantity</th>
-                    <th className="table-th">Supplier (optional)</th>
-                    <th className="table-th text-right">Action</th>
+                    <th className="table-th text-left">Height</th>
+                    <th className="table-th text-left">Width</th>
+                    <th className="table-th text-left">Length</th>
+                    <th className="table-th text-left">Quantity</th>
+                    <th className="table-th text-left">Supplier (optional)</th>
+                    <th className="table-th text-center w-32">Action</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -421,7 +435,7 @@ export default function AddStock({ refreshInventory, refreshOrders }) {
                         transition={{ duration: 0.2 }}
                         className="table-row-hover"
                       >
-                        <td className="table-td text-center">
+                        <td className="table-td w-12 text-center">
                           <input
                             type="checkbox"
                             checked={selectedRows.has(idx)}
@@ -430,7 +444,7 @@ export default function AddStock({ refreshInventory, refreshOrders }) {
                             className="h-4 w-4"
                           />
                         </td>
-                        <td className="table-td">
+                        <td className="table-td text-left">
                           <input
                             type="number"
                             step="any"
@@ -440,7 +454,7 @@ export default function AddStock({ refreshInventory, refreshOrders }) {
                             className="w-28 px-3 py-2 rounded-md bg-[#05060b] border border-border/60 font-mono text-xs text-white focus:outline-none focus:ring-1 focus:ring-accent/70"
                           />
                         </td>
-                        <td className="table-td">
+                        <td className="table-td text-left">
                           <input
                             type="number"
                             step="any"
@@ -450,7 +464,7 @@ export default function AddStock({ refreshInventory, refreshOrders }) {
                             className="w-28 px-3 py-2 rounded-md bg-[#05060b] border border-border/60 font-mono text-xs text-white focus:outline-none focus:ring-1 focus:ring-accent/70"
                           />
                         </td>
-                        <td className="table-td">
+                        <td className="table-td text-left">
                           <input
                             type="number"
                             step="any"
@@ -460,7 +474,7 @@ export default function AddStock({ refreshInventory, refreshOrders }) {
                             className="w-28 px-3 py-2 rounded-md bg-[#05060b] border border-border/60 font-mono text-xs text-white focus:outline-none focus:ring-1 focus:ring-accent/70"
                           />
                         </td>
-                        <td className="table-td">
+                        <td className="table-td text-left">
                           <input
                             type="number"
                             min="1"
@@ -469,7 +483,7 @@ export default function AddStock({ refreshInventory, refreshOrders }) {
                             className="w-24 px-3 py-2 rounded-md bg-[#05060b] border border-border/60 font-mono text-xs text-white focus:outline-none focus:ring-1 focus:ring-accent/70"
                           />
                         </td>
-                        <td className="table-td">
+                        <td className="table-td text-left">
                           <input
                             type="text"
                             value={row.from_supplier || ''}
@@ -478,7 +492,7 @@ export default function AddStock({ refreshInventory, refreshOrders }) {
                             className="w-44 px-3 py-2 rounded-md bg-[#05060b] border border-border/60 text-xs text-white placeholder:text-muted focus:outline-none focus:ring-1 focus:ring-accent/70"
                           />
                         </td>
-                        <td className="table-td text-right">
+                        <td className="table-td text-center w-32">
                           <button type="button" onClick={() => removeRow(idx)} className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-border/30 text-muted hover:border-danger/40 hover:text-danger">
                             <Trash2 size={14} />
                           </button>

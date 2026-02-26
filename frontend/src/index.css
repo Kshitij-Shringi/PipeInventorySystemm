@@ -75,3 +75,33 @@ input:focus {
   -ms-overflow-style: none; /* IE and Edge */
   scrollbar-width: none; /* Firefox */
 }
+
+/* Page shell — main content area padded within the sidebar layout */
+.page-shell {
+  @apply mx-auto max-w-7xl px-4 py-6 sm:px-6 sm:py-8;
+}
+
+/* Hero panel at the top of each page */
+.hero-panel {
+  @apply rounded-2xl border border-border/60 bg-gradient-to-br from-surface-elevated/90 to-surface/80 backdrop-blur-sm shadow-card;
+}
+
+/* Individual stat/metric tile inside a hero-panel */
+.metric-tile {
+  @apply rounded-xl border border-border/45 bg-surface-elevated/50 px-4 py-3;
+}
+
+/* Decorative accent line used in card headers */
+.route-line {
+  @apply relative;
+}
+.route-line::before {
+  content: '';
+  @apply absolute inset-y-0 left-0 w-0.5 bg-gradient-to-b from-accent/70 via-accent/30 to-transparent rounded-full;
+}
+
+/* Section/card heading */
+.section-title {
+  @apply font-display text-base font-bold text-white;
+}
+

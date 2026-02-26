@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ClipboardList, Loader2, Package, Trash2, RotateCcw, ChevronDown, ChevronRight, ChevronLeft, Calendar, X } from 'lucide-react';
+import { ClipboardList, Loader2, Package, Trash2, RotateCcw, ChevronDown, ChevronRight, ChevronLeft, Calendar, X, AlertTriangle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { fetchOrders, getErrorMessage } from '../api';
 import { useToast } from './Toast';
@@ -60,6 +60,55 @@ export default function OrderHistory({ refreshTrigger }) {
     setStartDate('');
     setEndDate('');
     setPage(1);
+  };
+
+  // Group analysis results per requirement similar to the \"How it will be made\" view
+  // so Activity Ledger doesn't render one bar per physical pipe when they are identical.
+  const buildGroupedAnalysis = (analysis) => {
+    return (analysis || []).map((block) => {
+      const groupsMap = new Map();
+      const unfulfilled = [];
+
+      (block.results || []).forEach((r) => {
+        if (r.unfulfilled != null) {
+          unfulfilled.push(r);
+          return;
+        }
+
+        const key = JSON.stringify({
+          source_length: r.source_length,
+          width: r.width,
+          height: r.height,
+          from_supplier: r.from_supplier || '',
+          cut_type: r.cut_type || 'cut',
+          cut_length: r.cut_length || 0,
+          remainder: r.remainder || 0,
+        });
+
+        if (!groupsMap.has(key)) {
+          groupsMap.set(key, {
+            template: r,
+            totalCuts: 0,
+            totalExactQty: 0,
+          });
+        }
+        const group = groupsMap.get(key);
+
+        if (r.cut_type === 'exact') {
+          const qty = r.quantity_used ?? 1;
+          group.totalExactQty += qty;
+        } else {
+          const cuts = r.cuts_from_this_pipe ?? 1;
+          group.totalCuts += cuts;
+        }
+      });
+
+      return {
+        requirement: block.requirement,
+        unfulfilled,
+        groups: Array.from(groupsMap.values()),
+      };
+    });
   };
 
   if (loading) {
@@ -207,7 +256,7 @@ export default function OrderHistory({ refreshTrigger }) {
                 </motion.button>
                 {expandedOrders.has(order.id) && (
                   <div className="space-y-6 pl-6">
-                    {order.analysis.map((block, blockIdx) => (
+                    {buildGroupedAnalysis(order.analysis).map((block, blockIdx) => (
                       <div key={blockIdx} className="space-y-4">
                         <div>
                           <p className="text-xs font-sans font-semibold text-muted uppercase tracking-wider mb-2">
@@ -218,28 +267,34 @@ export default function OrderHistory({ refreshTrigger }) {
                             )} — Qty: {formatNumber(block.requirement?.quantity_needed ?? 0)}
                           </p>
                           <div className="space-y-3">
-                            {(block.results || []).map((r, i) => {
-                              if (r.unfulfilled != null) {
-                                return (
-                                  <div
-                                    key={i}
-                                    className="flex items-center gap-3 px-4 py-3 rounded-lg bg-danger/10 border border-danger/30 text-danger font-sans text-sm"
-                                  >
-                                    Could not fulfil {r.unfulfilled} pipes — insufficient stock
-                                  </div>
-                                );
-                              }
+                            {block.unfulfilled.map((r, i) => (
+                              <div
+                                key={`unfulfilled-${i}`}
+                                className="flex items-center gap-3 px-4 py-3 rounded-lg bg-danger/10 border border-danger/30 text-danger font-sans text-sm"
+                              >
+                                <AlertTriangle size={18} />
+                                Could not fulfil {r.unfulfilled} pipes — insufficient stock
+                              </div>
+                            ))}
+
+                            {block.groups.map((g, i) => {
+                              const r = g.template;
+                              const isExact = r.cut_type === 'exact';
                               return (
-                                <div key={i}>
+                                <div key={`group-${i}`}>
                                   <PipeBar
                                     sourceLength={r.source_length}
-                                    usedLength={r.cut_type === 'exact' ? r.source_length * (r.quantity_used ?? 1) : (r.used_length ?? r.source_length - (r.remainder ?? 0))}
+                                    usedLength={
+                                      isExact
+                                        ? r.source_length
+                                        : r.used_length ?? r.source_length - (r.remainder ?? 0)
+                                    }
                                     remainder={r.remainder ?? 0}
                                     fromSupplier={r.from_supplier}
                                     cutType={r.cut_type}
-                                    cutsFromThisPipe={r.cuts_from_this_pipe}
+                                    cutsFromThisPipe={isExact ? undefined : g.totalCuts || r.cuts_from_this_pipe}
                                     cutLength={r.cut_length}
-                                    quantityUsed={r.quantity_used}
+                                    quantityUsed={isExact ? g.totalExactQty || r.quantity_used : undefined}
                                   />
                                 </div>
                               );

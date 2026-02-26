@@ -9,6 +9,7 @@ export default {
       fontFamily: {
         mono: ['"IBM Plex Mono"', 'monospace'],
         sans: ['"DM Sans"', 'sans-serif'],
+        display: ['"DM Sans"', 'sans-serif'],
       },
       colors: {
         surface: '#1a1d27',

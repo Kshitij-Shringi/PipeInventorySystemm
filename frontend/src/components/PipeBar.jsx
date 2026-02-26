@@ -1,8 +1,20 @@
 import React from 'react';
 import { motion } from 'framer-motion';
-import { formatNumber, formatDimensions } from '../utils/format';
+import { formatNumber } from '../utils/format';
 
-export default function PipeBar({ sourceLength, usedLength, remainder, fromSupplier, cutType, cutsFromThisPipe, cutLength, quantityUsed }) {
+export default function PipeBar({
+  sourceLength,
+  usedLength,
+  remainder,
+  fromSupplier,
+  cutType,
+  cutsFromThisPipe,
+  cutLength,
+  quantityUsed,
+}) {
+  const pipesUsed = quantityUsed != null ? quantityUsed : 1;
+  const pipesLabel = `${formatNumber(pipesUsed)} pipe${pipesUsed === 1 ? '' : 's'}`;
+
   if (cutType === 'exact') {
     return (
       <motion.div
@@ -13,7 +25,9 @@ export default function PipeBar({ sourceLength, usedLength, remainder, fromSuppl
         className="rounded-lg border border-border bg-surface-elevated/50 p-4 space-y-2"
       >
         <p className="text-sm font-sans text-muted">
-          Source: {formatNumber(sourceLength)} × … <span className="text-accent font-medium">(Qty: {formatNumber(quantityUsed ?? 1)})</span>
+          Using {pipesLabel} of length{' '}
+          <span className="font-mono text-slate-100">{formatNumber(sourceLength)}</span>
+          {fromSupplier ? <span className="text-xs text-muted"> — from {fromSupplier}</span> : null}
         </p>
         <motion.div
           initial={{ scaleX: 0 }}
@@ -40,7 +54,7 @@ export default function PipeBar({ sourceLength, usedLength, remainder, fromSuppl
     cutsFromThisPipe != null && cutLength != null
       ? `${formatNumber(cutsFromThisPipe)} cut${cutsFromThisPipe !== 1 ? 's' : ''} of ${formatNumber(
           cutLength,
-        )} from this pipe`
+        )} from each pipe`
       : null;
 
   return (
@@ -50,11 +64,12 @@ export default function PipeBar({ sourceLength, usedLength, remainder, fromSuppl
       transition={{ duration: 0.3, ease: [0.23, 1, 0.32, 1] }}
       whileHover={{ scale: 1.02, y: -2 }}
       className="rounded-lg border border-border bg-surface-elevated/50 p-4 space-y-2"
-    >
-      <p className="text-sm font-sans text-muted">
-        Source: {formatNumber(sourceLength)} × …{' '}
-        <span className="text-accent font-medium">(Qty: {formatNumber(cutsFromThisPipe ?? 1)})</span>
-      </p>
+      >
+        <p className="text-sm font-sans text-muted">
+          Using {pipesLabel} of length{' '}
+          <span className="font-mono text-slate-100">{formatNumber(sourceLength)}</span>
+          {fromSupplier ? <span className="text-xs text-muted"> — from {fromSupplier}</span> : null}
+        </p>
       {cutLabel != null && (
         <motion.p
           initial={{ opacity: 0, x: -10 }}

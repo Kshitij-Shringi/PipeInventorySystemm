@@ -56,9 +56,9 @@ export default function Navbar() {
           className="h-full rounded-[1.75rem] border border-border/45 bg-surface/65 p-4 shadow-card backdrop-blur-2xl"
         >
           <div className="route-line rounded-2xl border border-accent/30 bg-gradient-to-br from-accent/15 to-accent/5 p-4">
-            <div className="mb-3 flex items-center gap-3">
+            <div className="mb-3 flex items-center gap-3 max-w-full">
               {tenantLogoUrl ? (
-                <div className="h-11 w-11 rounded-xl border border-accent/45 bg-black/40 flex items-center justify-center overflow-hidden">
+                <div className="h-11 w-11 rounded-xl border border-accent/45 bg-black/40 flex items-center justify-center overflow-hidden flex-shrink-0">
                   <img
                     src={tenantLogoUrl}
                     alt={tenantName || 'Tenant logo'}
@@ -66,12 +66,12 @@ export default function Navbar() {
                   />
                 </div>
               ) : (
-                <div className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-accent/45 bg-accent/15">
+                <div className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-accent/45 bg-accent/15 flex-shrink-0">
                   <Package className="text-accent" size={22} strokeWidth={2.5} />
                 </div>
               )}
-              <div>
-                <p className="font-display text-xl font-bold text-white truncate">
+              <div className="min-w-0 flex-1">
+                <p className="font-display text-xl font-bold text-white truncate" title={tenantName || 'Pipe Control'}>
                   {tenantName || 'Pipe Control'}
                 </p>
                 <p className="text-xs text-muted">Logistics cockpit</p>

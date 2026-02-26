@@ -1,22 +1,31 @@
 import React, { useEffect, useState } from 'react';
+import { Users as UsersIcon, UserPlus, Shield, Trash2, AlertTriangle, X } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { createTenantUser, fetchTenantUsers, updateTenantUserRole, deleteTenantUser, getErrorMessage } from '../api';
 import { useAuth } from '../AuthContext';
+import { useToast } from '../components/Toast';
 
 export default function Users() {
   const { isTenantAdmin } = useAuth();
+  const { showToast } = useToast();
   const [users, setUsers] = useState([]);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [role, setRole] = useState('user');
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [loadingUsers, setLoadingUsers] = useState(true);
+  const [deleteTarget, setDeleteTarget] = useState(null); // { id, email }
+  const [deleting, setDeleting] = useState(false);
 
   async function loadUsers() {
     try {
+      setLoadingUsers(true);
       const data = await fetchTenantUsers();
       setUsers(data || []);
     } catch (err) {
-      setError(getErrorMessage(err, 'Failed to load users'));
+      showToast(getErrorMessage(err, 'Failed to load users'), 'error');
+    } finally {
+      setLoadingUsers(false);
     }
   }
 
@@ -26,170 +35,290 @@ export default function Users() {
 
   async function handleSubmit(e) {
     e.preventDefault();
-    if (!isTenantAdmin) {
-      return;
-    }
+    if (!isTenantAdmin) return;
     setLoading(true);
-    setError('');
     try {
       await createTenantUser({ email, password, role });
       setEmail('');
       setPassword('');
       setRole('user');
+      showToast('User created successfully', 'success');
       await loadUsers();
     } catch (err) {
-      setError(getErrorMessage(err, 'Failed to create user'));
+      showToast(getErrorMessage(err, 'Failed to create user'), 'error');
     } finally {
       setLoading(false);
     }
   }
 
+  async function handleDeleteConfirm() {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      await deleteTenantUser(deleteTarget.id);
+      setUsers((prev) => prev.filter((u) => u.id !== deleteTarget.id));
+      showToast(`User ${deleteTarget.email} deleted`, 'success');
+      setDeleteTarget(null);
+    } catch (err) {
+      showToast(getErrorMessage(err, 'Failed to delete user'), 'error');
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   return (
-    <div className="px-4 sm:px-6 lg:px-10">
-      <div className="mb-6 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold text-white">Users</h1>
-          <p className="text-sm text-muted">Manage accounts within this tenant.</p>
+    <>
+    <motion.div
+      initial={{ opacity: 0, y: 18 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.45 }}
+      className="page-shell space-y-6"
+    >
+      <section className="hero-panel p-6 sm:p-7">
+        <div className="flex items-start gap-4">
+          <div className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-accent/40 bg-accent/10 flex-shrink-0">
+            <UsersIcon className="text-accent" size={22} />
+          </div>
+          <div>
+            <h1 className="font-display text-4xl font-bold text-white">User Management</h1>
+            <p className="mt-2 max-w-xl text-sm text-muted">
+              Create and manage user accounts within your tenant. Assign roles and permissions.
+            </p>
+          </div>
         </div>
-      </div>
+      </section>
 
-      <div className="grid gap-6 lg:grid-cols-3">
-        <div className="rounded-2xl border border-border/40 bg-surface-elevated/40 p-4 lg:col-span-1">
-          <h2 className="text-sm font-semibold text-white mb-3">Add user</h2>
-          {!isTenantAdmin && (
-            <p className="mb-3 text-xs text-muted">Only tenant admins can create new users.</p>
-          )}
-          {error && (
-            <div className="mb-3 text-xs text-red-400 bg-red-950/40 border border-red-500/40 rounded-md px-3 py-2">
-              {error}
+      <section className="grid gap-6 lg:grid-cols-[380px_1fr]">
+        <div className="card">
+          <div className="card-header route-line">
+            <div className="flex items-center gap-2">
+              <UserPlus size={18} className="text-accent" />
+              <h2 className="section-title">Add New User</h2>
             </div>
-          )}
-          <form onSubmit={handleSubmit} className="space-y-3">
-            <div>
-              <label className="block text-xs text-gray-300 mb-1" htmlFor="user-email">
-                Email
-              </label>
-              <input
-                id="user-email"
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="w-full px-3 py-2 rounded-md bg-[#05060b] border border-border/60 text-white text-sm focus:outline-none focus:ring-2 focus:ring-accent"
-                required
-                disabled={!isTenantAdmin}
-              />
-            </div>
-            <div>
-              <label className="block text-xs text-gray-300 mb-1" htmlFor="user-password">
-                Password
-              </label>
-              <input
-                id="user-password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full px-3 py-2 rounded-md bg-[#05060b] border border-border/60 text-white text-sm focus:outline-none focus:ring-2 focus:ring-accent"
-                required
-                disabled={!isTenantAdmin}
-              />
-            </div>
-            <div>
-              <label className="block text-xs text-gray-300 mb-1" htmlFor="user-role">
-                Role
-              </label>
-              <select
-                id="user-role"
-                value={role}
-                onChange={(e) => setRole(e.target.value)}
-                className="w-full px-3 py-2 rounded-md bg-[#05060b] border border-border/60 text-white text-sm focus:outline-none focus:ring-2 focus:ring-accent"
-                disabled={!isTenantAdmin}
+          </div>
+          <div className="card-body">
+            {!isTenantAdmin && (
+              <div className="mb-4 rounded-lg bg-amber-950/30 border border-amber-500/40 px-3 py-2.5 text-xs text-amber-300">
+                Only tenant admins can create new users.
+              </div>
+            )}
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div>
+                <label className="mb-2 block text-xs uppercase tracking-[0.15em] text-muted" htmlFor="user-email">
+                  Email
+                </label>
+                <input
+                  id="user-email"
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="w-full px-3 py-2.5 rounded-md bg-[#05060b] border border-border/60 text-white text-sm focus:outline-none focus:ring-1 focus:ring-accent/70"
+                  required
+                  disabled={!isTenantAdmin}
+                />
+              </div>
+              <div>
+                <label className="mb-2 block text-xs uppercase tracking-[0.15em] text-muted" htmlFor="user-password">
+                  Password
+                </label>
+                <input
+                  id="user-password"
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="w-full px-3 py-2.5 rounded-md bg-[#05060b] border border-border/60 text-white text-sm focus:outline-none focus:ring-1 focus:ring-accent/70"
+                  required
+                  disabled={!isTenantAdmin}
+                />
+              </div>
+              <div>
+                <label className="mb-2 block text-xs uppercase tracking-[0.15em] text-muted" htmlFor="user-role">
+                  Role
+                </label>
+                <select
+                  id="user-role"
+                  value={role}
+                  onChange={(e) => setRole(e.target.value)}
+                  className="w-full px-3 py-2.5 rounded-md bg-[#05060b] border border-border/60 text-white text-sm focus:outline-none focus:ring-1 focus:ring-accent/70"
+                  disabled={!isTenantAdmin}
+                >
+                  <option value="user">User</option>
+                  <option value="tenant_admin">Tenant Admin</option>
+                </select>
+              </div>
+              <button
+                type="submit"
+                disabled={loading || !isTenantAdmin}
+                className="btn-primary w-full inline-flex items-center justify-center gap-2"
               >
-                <option value="user">User</option>
-                <option value="tenant_admin">Tenant admin</option>
-              </select>
-            </div>
-            <button
-              type="submit"
-              disabled={loading || !isTenantAdmin}
-              className="w-full mt-1 py-2.5 rounded-md bg-accent text-white text-sm font-medium hover:bg-accent/90 transition disabled:opacity-60"
-            >
-              {loading ? 'Creating...' : 'Create user'}
-            </button>
-          </form>
+                <UserPlus size={18} />
+                {loading ? 'Creating...' : 'Create User'}
+              </button>
+            </form>
+          </div>
         </div>
 
-        <div className="rounded-2xl border border-border/40 bg-surface-elevated/40 p-4 lg:col-span-2">
-          <h2 className="text-sm font-semibold text-white mb-3">Existing users</h2>
-          {users.length === 0 ? (
-            <p className="text-xs text-muted">No users yet.</p>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="min-w-full text-left text-xs text-gray-200">
-                <thead>
-                  <tr className="border-b border-border/40 text-[11px] uppercase tracking-wide text-muted">
-                    <th className="px-2 py-2">Email</th>
-                    <th className="px-2 py-2">Role</th>
-                    <th className="px-2 py-2 w-28 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {users.map((u) => (
-                    <tr key={u.id} className="border-b border-border/20 last:border-0">
-                      <td className="px-2 py-2 text-xs">{u.email}</td>
-                      <td className="px-2 py-2 text-xs capitalize">
-                        {isTenantAdmin ? (
-                          <select
-                            value={u.role}
-                            onChange={async (e) => {
-                              const newRole = e.target.value;
-                              try {
-                                await updateTenantUserRole(u.id, newRole);
-                                setUsers((prev) =>
-                                  prev.map((usr) =>
-                                    usr.id === u.id ? { ...usr, role: newRole } : usr,
-                                  ),
-                                );
-                              } catch (err) {
-                                setError(getErrorMessage(err, 'Failed to update role'));
-                              }
-                            }}
-                            className="rounded-md bg-[#05060b] border border-border/60 px-2 py-1 text-xs text-white"
-                          >
-                            <option value="user">User</option>
-                            <option value="tenant_admin">Tenant admin</option>
-                          </select>
-                        ) : (
-                          u.role
-                        )}
-                      </td>
-                      <td className="px-2 py-2 text-xs text-right">
-                        {isTenantAdmin && (
-                          <button
-                            type="button"
-                            onClick={async () => {
-                              if (!window.confirm(`Delete user ${u.email}?`)) return;
-                              try {
-                                await deleteTenantUser(u.id);
-                                setUsers((prev) => prev.filter((usr) => usr.id !== u.id));
-                              } catch (err) {
-                                setError(getErrorMessage(err, 'Failed to delete user'));
-                              }
-                            }}
-                            className="rounded-md border border-border/60 px-2 py-1 text-[11px] text-red-300 hover:border-red-400 hover:text-red-200"
-                          >
-                            Delete
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+        <div className="card">
+          <div className="card-header route-line">
+            <div className="flex items-center gap-2">
+              <UsersIcon size={18} className="text-accent" />
+              <h2 className="section-title">Team Members</h2>
+              <span className="ml-2 rounded-full bg-accent/15 px-2.5 py-0.5 text-xs font-semibold text-accent">
+                {users.length}
+              </span>
             </div>
-          )}
+          </div>
+          <div className="card-body">
+            {loadingUsers ? (
+              <div className="py-16 text-center">
+                <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-accent/30 border-t-accent"></div>
+                <p className="mt-3 text-sm text-muted">Loading users...</p>
+              </div>
+            ) : users.length === 0 ? (
+              <div className="py-16 text-center">
+                <UsersIcon className="mx-auto mb-4 text-muted" size={38} />
+                <h3 className="text-lg font-bold text-white">No users yet</h3>
+                <p className="mt-1 text-sm text-muted">Create your first user to get started.</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto no-scrollbar">
+                <table className="w-full">
+                  <thead>
+                    <tr>
+                      <th className="table-th text-left">Email</th>
+                      <th className="table-th text-left w-40">Role</th>
+                      <th className="table-th text-center w-32">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <AnimatePresence>
+                      {users.map((u, index) => (
+                        <motion.tr
+                          key={u.id}
+                          initial={{ opacity: 0, y: 8 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, x: -20 }}
+                          transition={{ duration: 0.22, delay: index * 0.02 }}
+                          className="table-row-hover"
+                        >
+                          <td className="table-td font-mono text-white text-left">{u.email}</td>
+                          <td className="table-td text-left w-40">
+                            {isTenantAdmin ? (
+                              <select
+                                value={u.role}
+                                onChange={async (e) => {
+                                  const newRole = e.target.value;
+                                  try {
+                                    await updateTenantUserRole(u.id, newRole);
+                                    setUsers((prev) =>
+                                      prev.map((usr) =>
+                                        usr.id === u.id ? { ...usr, role: newRole } : usr,
+                                      ),
+                                    );
+                                    showToast('Role updated', 'success');
+                                  } catch (err) {
+                                    showToast(getErrorMessage(err, 'Failed to update role'), 'error');
+                                  }
+                                }}
+                                className="w-36 rounded-md bg-[#05060b] border border-border/60 px-2.5 py-1.5 text-xs text-white focus:outline-none focus:ring-1 focus:ring-accent/70"
+                              >
+                                <option value="user">User</option>
+                                <option value="tenant_admin">Tenant Admin</option>
+                              </select>
+                            ) : (
+                              <span className="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-surface-elevated/40 px-2.5 py-1 text-xs font-semibold capitalize text-gray-300">
+                                {u.role === 'tenant_admin' && <Shield size={12} />}
+                                {u.role.replace('_', ' ')}
+                              </span>
+                            )}
+                          </td>
+                          <td className="table-td text-center w-32">
+                            {isTenantAdmin && (
+                              <button
+                                type="button"
+                                onClick={() => setDeleteTarget({ id: u.id, email: u.email })}
+                                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-border/30 text-muted hover:border-danger/40 hover:text-danger"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            )}
+                          </td>
+                        </motion.tr>
+                      ))}
+                    </AnimatePresence>
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         </div>
-      </div>
-    </div>
+      </section>
+    </motion.div>
+
+      {/* Delete confirmation modal — rendered outside motion.div to avoid transform breaking fixed positioning */}
+      <AnimatePresence>
+        {deleteTarget && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 lg:left-[19rem] z-50 flex items-center justify-center bg-black/70 backdrop-blur-md"
+            onClick={() => !deleting && setDeleteTarget(null)}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              transition={{ type: 'spring', stiffness: 300, damping: 25 }}
+              onClick={(e) => e.stopPropagation()}
+              className="w-full max-w-md overflow-hidden rounded-2xl border border-danger/40 bg-surface/90 shadow-2xl"
+            >
+              <div className="flex items-center justify-between border-b border-border/35 px-6 py-4">
+                <div className="flex items-center gap-3">
+                  <div className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-danger/15">
+                    <AlertTriangle className="text-danger" size={18} />
+                  </div>
+                  <p className="font-bold text-white">Delete User</p>
+                </div>
+                <button
+                  onClick={() => !deleting && setDeleteTarget(null)}
+                  className="rounded-lg p-1 text-muted hover:bg-white/5 hover:text-white"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+              <div className="space-y-5 p-6">
+                <p className="text-sm text-slate-300">
+                  Are you sure you want to delete this user? This action cannot be undone.
+                </p>
+                <div className="rounded-xl border border-danger/25 bg-danger/5 p-3">
+                  <p className="font-mono text-sm text-danger">{deleteTarget.email}</p>
+                </div>
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => setDeleteTarget(null)}
+                    disabled={deleting}
+                    className="flex-1 rounded-xl border border-border/60 bg-surface-elevated/60 px-4 py-2.5 text-sm font-semibold text-gray-300 hover:bg-surface-elevated hover:text-white transition disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleDeleteConfirm}
+                    disabled={deleting}
+                    className="flex-1 rounded-xl bg-danger px-4 py-2.5 text-sm font-bold text-white hover:bg-danger-hover transition disabled:opacity-50 inline-flex items-center justify-center gap-2"
+                  >
+                    {deleting ? (
+                      <><div className="h-4 w-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />Deleting...</>
+                    ) : (
+                      <><Trash2 size={15} />Delete user</>
+                    )}
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </>
   );
 }
-
