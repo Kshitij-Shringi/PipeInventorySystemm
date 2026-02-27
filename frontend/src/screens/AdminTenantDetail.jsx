@@ -6,6 +6,9 @@ import {
   adminUpdateTenant,
   adminUpdateTenantStatus,
   adminCreateTenantUser,
+  adminResetUserPassword,
+  adminFetchTenantInventory,
+  adminFetchTenantOrders,
   getErrorMessage,
 } from '../api';
 import {
@@ -23,6 +26,11 @@ import {
   Save,
   PowerOff,
   Power,
+  KeyRound,
+  Eye,
+  EyeOff,
+  X,
+  ChevronDown,
 } from 'lucide-react';
 
 function StatCard({ label, value, icon: Icon, color, border, bg }) {
@@ -61,6 +69,19 @@ export default function AdminTenantDetail() {
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [userError, setUserError] = useState('');
   const [userSuccess, setUserSuccess] = useState(false);
+  const [resetTarget, setResetTarget] = useState(null); // { id, email }
+  const [resetNewPassword, setResetNewPassword] = useState('');
+  const [resetShowPassword, setResetShowPassword] = useState(false);
+  const [resetting, setResetting] = useState(false);
+  const [resetError, setResetError] = useState('');
+
+  // Paginated inventory & orders
+  const [invItems, setInvItems] = useState([]);
+  const [invTotal, setInvTotal] = useState(0);
+  const [invLoadingMore, setInvLoadingMore] = useState(false);
+  const [ordersItems, setOrdersItems] = useState([]);
+  const [ordersTotal, setOrdersTotal] = useState(0);
+  const [ordersLoadingMore, setOrdersLoadingMore] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -71,6 +92,10 @@ export default function AdminTenantDetail() {
         setTenant(data);
         setEditingName(data.name || '');
         setEditingLogo(data.logo_url || '');
+        setInvItems(data.inventory_sample || []);
+        setInvTotal(data.inventory_groups_total ?? (data.inventory_sample || []).length);
+        setOrdersItems(data.recent_orders || []);
+        setOrdersTotal(data.orders_total ?? (data.recent_orders || []).length);
       } catch (e) {
         const status = e?.response?.status;
         if (status === 401 || status === 403) {
@@ -127,6 +152,109 @@ export default function AdminTenantDetail() {
           {loading && <Loader2 className="h-4 w-4 text-accent animate-spin" />}
         </div>
       </motion.header>
+
+      {/* Reset password modal */}
+      <AnimatePresence>
+        {resetTarget && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-md"
+            onClick={() => !resetting && setResetTarget(null)}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              transition={{ type: 'spring', stiffness: 300, damping: 25 }}
+              onClick={(e) => e.stopPropagation()}
+              className="w-full max-w-md overflow-hidden rounded-2xl border border-accent/40 bg-[#050816] shadow-2xl mx-4"
+            >
+              <div className="flex items-center justify-between border-b border-border/35 px-6 py-4">
+                <div className="flex items-center gap-3">
+                  <div className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-accent/15">
+                    <KeyRound className="text-accent" size={18} />
+                  </div>
+                  <p className="font-bold text-white">Reset Password</p>
+                </div>
+                <button
+                  onClick={() => !resetting && setResetTarget(null)}
+                  className="rounded-lg p-1 text-gray-500 hover:bg-white/5 hover:text-white transition-colors"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+              <div className="space-y-5 p-6">
+                <div>
+                  <p className="text-sm text-slate-300 mb-1">Set a new password for:</p>
+                  <div className="rounded-xl border border-accent/25 bg-accent/5 px-3 py-2">
+                    <p className="font-mono text-sm text-accent">{resetTarget.email}</p>
+                  </div>
+                </div>
+                {resetError && (
+                  <p className="text-xs text-red-400 bg-red-950/40 border border-red-500/40 rounded-lg px-3 py-2">{resetError}</p>
+                )}
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-[0.15em] text-gray-400 mb-2">
+                    New password
+                  </label>
+                  <div className="relative">
+                    <input
+                      type={resetShowPassword ? 'text' : 'password'}
+                      value={resetNewPassword}
+                      onChange={(e) => setResetNewPassword(e.target.value)}
+                      placeholder="Min. 6 characters"
+                      className="w-full px-3 py-2.5 pr-10 rounded-lg bg-black/40 border border-border/60 text-sm text-white placeholder:text-gray-500 focus:outline-none focus:ring-1 focus:ring-accent/70"
+                      autoFocus
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setResetShowPassword((v) => !v)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-white transition-colors"
+                    >
+                      {resetShowPassword ? <EyeOff size={15} /> : <Eye size={15} />}
+                    </button>
+                  </div>
+                </div>
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => { setResetTarget(null); setResetNewPassword(''); setResetError(''); }}
+                    disabled={resetting}
+                    className="flex-1 rounded-xl border border-border/60 bg-white/5 px-4 py-2.5 text-sm font-semibold text-gray-300 hover:bg-white/10 hover:text-white transition disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={async () => {
+                      if (resetNewPassword.length < 6) { setResetError('Password must be at least 6 characters'); return; }
+                      setResetting(true);
+                      setResetError('');
+                      try {
+                        await adminResetUserPassword(resetTarget.tenantId, resetTarget.id, resetNewPassword);
+                        setResetTarget(null);
+                        setResetNewPassword('');
+                      } catch (e) {
+                        setResetError(getErrorMessage(e, 'Failed to reset password'));
+                      } finally {
+                        setResetting(false);
+                      }
+                    }}
+                    disabled={resetting || resetNewPassword.length < 6}
+                    className="flex-1 rounded-xl bg-accent px-4 py-2.5 text-sm font-bold text-slate-950 hover:bg-accent/90 transition disabled:opacity-50 inline-flex items-center justify-center gap-2"
+                  >
+                    {resetting ? (
+                      <><div className="h-4 w-4 border-2 border-slate-800/30 border-t-slate-900 rounded-full animate-spin" />Resetting…</>
+                    ) : (
+                      <><KeyRound size={15} />Reset password</>
+                    )}
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <main className="relative z-10 px-6 py-8">
         <div className="mx-auto max-w-7xl space-y-6">
@@ -438,7 +566,7 @@ export default function AdminTenantDetail() {
                             <tr className="border-b border-border/40">
                               <th className="py-2 pr-3 text-[11px] font-semibold uppercase tracking-wider text-muted">Email</th>
                               <th className="py-2 pr-3 text-[11px] font-semibold uppercase tracking-wider text-muted">Role</th>
-                              <th className="py-2 text-right text-[11px] font-semibold uppercase tracking-wider text-muted">Created</th>
+                              <th className="py-2 text-center text-[11px] font-semibold uppercase tracking-wider text-muted w-16">Action</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -450,7 +578,7 @@ export default function AdminTenantDetail() {
                                 transition={{ delay: i * 0.03 }}
                                 className="border-b border-border/15 last:border-0"
                               >
-                                <td className="py-2 pr-3 text-gray-200 truncate max-w-[180px]">{u.email}</td>
+                                <td className="py-2 pr-3 text-gray-200 truncate max-w-[160px]">{u.email}</td>
                                 <td className="py-2 pr-3">
                                   <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold border ${
                                     u.role === 'tenant_admin'
@@ -461,8 +589,15 @@ export default function AdminTenantDetail() {
                                     {u.role.replace('_', ' ')}
                                   </span>
                                 </td>
-                                <td className="py-2 text-right text-[11px] text-gray-500">
-                                  {u.created_at ? new Date(u.created_at).toLocaleDateString() : '—'}
+                                <td className="py-2 text-center w-16">
+                                  <button
+                                    type="button"
+                                    title="Reset password"
+                                    onClick={() => { setResetTarget({ id: u.id, email: u.email, tenantId: tenant.id }); setResetNewPassword(''); setResetShowPassword(false); setResetError(''); }}
+                                    className="inline-flex h-7 w-7 items-center justify-center rounded-lg border border-border/30 text-muted hover:border-accent/40 hover:text-accent transition-colors"
+                                  >
+                                    <KeyRound size={13} />
+                                  </button>
                                 </td>
                               </motion.tr>
                             ))}
@@ -481,36 +616,63 @@ export default function AdminTenantDetail() {
                       <h3 className="text-sm font-bold text-white flex items-center gap-2">
                         <Package size={16} className="text-emerald-400" /> Inventory snapshot
                       </h3>
-                      <span className="text-[11px] text-muted">{(tenant.inventory_sample || []).length} rows</span>
+                      <span className="text-[11px] text-muted">
+                        {invItems.length} / {invTotal} rows
+                      </span>
                     </div>
-                    {(!tenant.inventory_sample || tenant.inventory_sample.length === 0) ? (
+                    {invItems.length === 0 ? (
                       <div className="py-8 text-center">
                         <Package className="mx-auto mb-3 text-muted" size={28} />
                         <p className="text-xs text-muted">No inventory rows yet.</p>
                       </div>
                     ) : (
-                      <div className="max-h-64 overflow-y-auto no-scrollbar">
-                        <table className="w-full text-left text-xs">
-                          <thead>
-                            <tr className="border-b border-border/40">
-                              <th className="py-2 pr-3 text-[11px] font-semibold uppercase tracking-wider text-muted">H × W × L</th>
-                              <th className="py-2 text-right text-[11px] font-semibold uppercase tracking-wider text-muted">Qty</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {tenant.inventory_sample.map((row, idx) => (
-                              <tr key={idx} className="border-b border-border/15 last:border-0">
-                                <td className="py-2 pr-3 font-mono text-gray-200">
-                                  {row.height} × {row.width} × {row.length}
-                                </td>
-                                <td className="py-2 text-right font-mono font-semibold text-white">
-                                  {row.quantity ?? 0}
-                                </td>
+                      <>
+                        <div className="overflow-y-auto no-scrollbar" style={{ maxHeight: invItems.length > 10 ? '420px' : '256px' }}>
+                          <table className="w-full text-left text-xs">
+                            <thead>
+                              <tr className="border-b border-border/40">
+                                <th className="py-2 pr-3 text-[11px] font-semibold uppercase tracking-wider text-muted">H × W × L</th>
+                                <th className="py-2 text-right text-[11px] font-semibold uppercase tracking-wider text-muted">Qty</th>
                               </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
+                            </thead>
+                            <tbody>
+                              {invItems.map((row, idx) => (
+                                <tr key={idx} className="border-b border-border/15 last:border-0">
+                                  <td className="py-2 pr-3 font-mono text-gray-200">
+                                    {row.height} × {row.width} × {row.length}
+                                  </td>
+                                  <td className="py-2 text-right font-mono font-semibold text-white">
+                                    {row.quantity ?? 0}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                        {invItems.length < invTotal && (
+                          <button
+                            type="button"
+                            disabled={invLoadingMore}
+                            onClick={async () => {
+                              setInvLoadingMore(true);
+                              try {
+                                const res = await adminFetchTenantInventory(tenant.id, invItems.length, 10);
+                                setInvItems((prev) => [...prev, ...res.items]);
+                                setInvTotal(res.total);
+                              } catch {/* silent */} finally {
+                                setInvLoadingMore(false);
+                              }
+                            }}
+                            className="mt-3 w-full inline-flex items-center justify-center gap-2 rounded-lg border border-border/40 bg-white/5 py-2 text-xs font-semibold text-gray-300 hover:bg-white/10 hover:text-white transition disabled:opacity-50"
+                          >
+                            {invLoadingMore ? (
+                              <><Loader2 size={13} className="animate-spin" />Loading…</>
+                            ) : (
+                              <><ChevronDown size={13} />Show more ({invTotal - invItems.length} remaining)</>
+                            )}
+                          </button>
+                        )}
+                      </>
                     )}
                   </div>
 
@@ -520,38 +682,65 @@ export default function AdminTenantDetail() {
                       <h3 className="text-sm font-bold text-white flex items-center gap-2">
                         <ClipboardList size={16} className="text-blue-400" /> Recent orders
                       </h3>
-                      <span className="text-[11px] text-muted">{(tenant.recent_orders || []).length} shown</span>
+                      <span className="text-[11px] text-muted">
+                        {ordersItems.length} / {ordersTotal} shown
+                      </span>
                     </div>
-                    {(!tenant.recent_orders || tenant.recent_orders.length === 0) ? (
+                    {ordersItems.length === 0 ? (
                       <div className="py-8 text-center">
                         <ClipboardList className="mx-auto mb-3 text-muted" size={28} />
                         <p className="text-xs text-muted">No orders recorded yet.</p>
                       </div>
                     ) : (
-                      <div className="max-h-64 overflow-y-auto no-scrollbar">
-                        <table className="w-full text-left text-xs">
-                          <thead>
-                            <tr className="border-b border-border/40">
-                              <th className="py-2 pr-3 text-[11px] font-semibold uppercase tracking-wider text-muted">Recipient</th>
-                              <th className="py-2 pr-3 text-right text-[11px] font-semibold uppercase tracking-wider text-muted">Pipes</th>
-                              <th className="py-2 text-right text-[11px] font-semibold uppercase tracking-wider text-muted">Date</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {tenant.recent_orders.map((o) => (
-                              <tr key={o.id} className="border-b border-border/15 last:border-0">
-                                <td className="py-2 pr-3 text-gray-200 truncate max-w-[140px]">{o.recipient || '—'}</td>
-                                <td className="py-2 pr-3 text-right font-mono text-white font-semibold">
-                                  {o.summary?.pipes_consumed ?? 0}
-                                </td>
-                                <td className="py-2 text-right text-[11px] text-gray-500">
-                                  {o.created_at ? new Date(o.created_at).toLocaleDateString() : '—'}
-                                </td>
+                      <>
+                        <div className="overflow-y-auto no-scrollbar" style={{ maxHeight: ordersItems.length > 10 ? '420px' : '256px' }}>
+                          <table className="w-full text-left text-xs">
+                            <thead>
+                              <tr className="border-b border-border/40">
+                                <th className="py-2 pr-3 text-[11px] font-semibold uppercase tracking-wider text-muted">Recipient</th>
+                                <th className="py-2 pr-3 text-right text-[11px] font-semibold uppercase tracking-wider text-muted">Pipes</th>
+                                <th className="py-2 text-right text-[11px] font-semibold uppercase tracking-wider text-muted">Date</th>
                               </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
+                            </thead>
+                            <tbody>
+                              {ordersItems.map((o) => (
+                                <tr key={o.id} className="border-b border-border/15 last:border-0">
+                                  <td className="py-2 pr-3 text-gray-200 truncate max-w-[140px]">{o.recipient || '—'}</td>
+                                  <td className="py-2 pr-3 text-right font-mono text-white font-semibold">
+                                    {o.summary?.pipes_consumed ?? 0}
+                                  </td>
+                                  <td className="py-2 text-right text-[11px] text-gray-500">
+                                    {o.created_at ? new Date(o.created_at).toLocaleDateString() : '—'}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                        {ordersItems.length < ordersTotal && (
+                          <button
+                            type="button"
+                            disabled={ordersLoadingMore}
+                            onClick={async () => {
+                              setOrdersLoadingMore(true);
+                              try {
+                                const res = await adminFetchTenantOrders(tenant.id, ordersItems.length, 10);
+                                setOrdersItems((prev) => [...prev, ...res.items]);
+                                setOrdersTotal(res.total);
+                              } catch {/* silent */} finally {
+                                setOrdersLoadingMore(false);
+                              }
+                            }}
+                            className="mt-3 w-full inline-flex items-center justify-center gap-2 rounded-lg border border-border/40 bg-white/5 py-2 text-xs font-semibold text-gray-300 hover:bg-white/10 hover:text-white transition disabled:opacity-50"
+                          >
+                            {ordersLoadingMore ? (
+                              <><Loader2 size={13} className="animate-spin" />Loading…</>
+                            ) : (
+                              <><ChevronDown size={13} />Show more ({ordersTotal - ordersItems.length} remaining)</>
+                            )}
+                          </button>
+                        )}
+                      </>
                     )}
                   </div>
                 </div>

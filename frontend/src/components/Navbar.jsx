@@ -1,6 +1,6 @@
 import React from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
-import { Package, PlusCircle, FileText, ClipboardList, LogOut, Users } from 'lucide-react';
+import { Package, PlusCircle, FileText, ClipboardList, LogOut, Users, Settings } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useAuth } from '../AuthContext';
 
@@ -36,10 +36,17 @@ function TabButton({ path, label, Icon }) {
 export default function Navbar() {
   const { isAuthenticated, email, tenantName, tenantLogoUrl, isTenantAdmin, logout } = useAuth();
   const navigate = useNavigate();
+  const tenantInitial =
+    (tenantName && tenantName.trim().charAt(0).toUpperCase()) ||
+    'P';
 
   const tabs = isTenantAdmin
-    ? [...baseTabs, { id: 'users', path: '/users', label: 'Users', icon: Users }]
-    : baseTabs;
+    ? [
+        ...baseTabs,
+        { id: 'users', path: '/users', label: 'Users', icon: Users },
+        { id: 'settings', path: '/settings', label: 'Settings', icon: Settings },
+      ]
+    : [...baseTabs, { id: 'settings', path: '/settings', label: 'Settings', icon: Settings }];
 
   function handleLogout() {
     logout();
@@ -53,9 +60,9 @@ export default function Navbar() {
           initial={{ opacity: 0, x: -24 }}
           animate={{ opacity: 1, x: 0 }}
           transition={{ duration: 0.5 }}
-          className="h-full rounded-[1.75rem] border border-border/45 bg-surface/65 p-4 shadow-card backdrop-blur-2xl"
+          className="h-full flex flex-col rounded-[1.75rem] border border-border/45 bg-surface/65 p-4 shadow-card backdrop-blur-2xl"
         >
-          <div className="route-line rounded-2xl border border-accent/30 bg-gradient-to-br from-accent/15 to-accent/5 p-4">
+          <div className="route-line rounded-2xl border border-accent/30 bg-gradient-to-br from-accent/15 to-accent/5 p-4 overflow-hidden">
             <div className="mb-3 flex items-center gap-3 max-w-full">
               {tenantLogoUrl ? (
                 <div className="h-11 w-11 rounded-xl border border-accent/45 bg-black/40 flex items-center justify-center overflow-hidden flex-shrink-0">
@@ -67,7 +74,9 @@ export default function Navbar() {
                 </div>
               ) : (
                 <div className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-accent/45 bg-accent/15 flex-shrink-0">
-                  <Package className="text-accent" size={22} strokeWidth={2.5} />
+                  <span className="font-display text-lg font-bold text-accent">
+                    {tenantInitial}
+                  </span>
                 </div>
               )}
               <div className="min-w-0 flex-1">
@@ -93,12 +102,7 @@ export default function Navbar() {
             ))}
           </div>
 
-          <div className="mt-auto space-y-3">
-            <div className="rounded-2xl border border-border/35 bg-surface-elevated/35 p-4">
-              <p className="text-xs uppercase tracking-[0.16em] text-muted">Workflow</p>
-              <p className="mt-2 text-sm font-medium text-slate-100">Inventory to Analysis to Fulfillment</p>
-            </div>
-
+          <div className="mt-auto pt-4">
             {isAuthenticated && (
               <button
                 type="button"

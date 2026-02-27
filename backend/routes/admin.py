@@ -217,9 +217,8 @@ async def tenant_stats(tenant_id: str):
             }
         )
 
-    # Inventory snapshot – group by dimensions like the tenant UI, but only a few rows.
-    inventory_sample: list[dict] = []
-    inv_pipeline = [
+    # Inventory snapshot – group by dimensions, first 10 rows.
+    inv_group_pipeline = [
         {
             "$group": {
                 "_id": {"length": "$length", "width": "$width", "height": "$height"},
@@ -238,12 +237,16 @@ async def tenant_stats(tenant_id: str):
             }
         },
         {"$sort": {"length": -1}},
-        {"$limit": 10},
     ]
-    async for doc in inv_coll.aggregate(inv_pipeline):
-        inventory_sample.append(doc)
+    # Run full aggregation to get total groups count + first page
+    all_inv_groups: list[dict] = []
+    async for doc in inv_coll.aggregate(inv_group_pipeline):
+        all_inv_groups.append(doc)
+    inventory_groups_total = len(all_inv_groups)
+    inventory_sample = all_inv_groups[:10]
 
-    # Recent orders snapshot
+    # Recent orders snapshot – first 10, newest first.
+    orders_total = await orders_coll.count_documents({})
     recent_orders: list[dict] = []
     orders_cursor = (
         orders_coll.find({})
@@ -274,8 +277,103 @@ async def tenant_stats(tenant_id: str):
         },
         "users": users,
         "inventory_sample": inventory_sample,
+        "inventory_groups_total": inventory_groups_total,
         "recent_orders": recent_orders,
+        "orders_total": orders_total,
     }
+
+
+@router.get("/tenants/{tenant_id}/inventory")
+async def get_tenant_inventory(tenant_id: str, skip: int = 0, limit: int = 10):
+    """Paginated grouped inventory for a tenant (superadmin view)."""
+    control_db = get_control_database()
+    try:
+        oid = ObjectId(tenant_id)
+    except Exception:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid tenant id")
+    tenant = await control_db["tenants"].find_one({"_id": oid})
+    if not tenant or not tenant.get("db_name"):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tenant not found or has no database")
+
+    db = get_tenant_database(tenant["db_name"])
+    pipeline = [
+        {
+            "$group": {
+                "_id": {"length": "$length", "width": "$width", "height": "$height"},
+                "quantity": {"$sum": "$quantity"},
+                "firstSupplier": {"$first": "$from"},
+            }
+        },
+        {
+            "$project": {
+                "_id": 0,
+                "length": "$_id.length",
+                "width": "$_id.width",
+                "height": "$_id.height",
+                "quantity": "$quantity",
+                "from_supplier": "$firstSupplier",
+            }
+        },
+        {"$sort": {"length": -1}},
+    ]
+    all_rows: list[dict] = []
+    async for doc in db[INVENTORY_COLLECTION].aggregate(pipeline):
+        all_rows.append(doc)
+    return {"items": all_rows[skip: skip + limit], "total": len(all_rows)}
+
+
+@router.get("/tenants/{tenant_id}/orders")
+async def get_tenant_orders(tenant_id: str, skip: int = 0, limit: int = 10):
+    """Paginated orders for a tenant (superadmin view)."""
+    control_db = get_control_database()
+    try:
+        oid = ObjectId(tenant_id)
+    except Exception:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid tenant id")
+    tenant = await control_db["tenants"].find_one({"_id": oid})
+    if not tenant or not tenant.get("db_name"):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tenant not found or has no database")
+
+    db = get_tenant_database(tenant["db_name"])
+    orders_coll = db[ORDERS_COLLECTION]
+    total = await orders_coll.count_documents({})
+    cursor = orders_coll.find({}).sort("created_at", -1).skip(skip).limit(limit)
+    items: list[dict] = []
+    async for doc in cursor:
+        items.append(
+            {
+                "id": str(doc.get("_id")),
+                "recipient": doc.get("recipient"),
+                "summary": doc.get("summary", {}),
+                "created_at": doc.get("created_at"),
+            }
+        )
+    return {"items": items, "total": total}
+
+
+@router.patch("/tenants/{tenant_id}/users/{user_id}/reset-password")
+async def admin_reset_user_password(tenant_id: str, user_id: str, body: dict):
+    """Superadmin: reset a specific user's password within a tenant."""
+    new_password = (body.get("new_password") or "").strip()
+    if len(new_password) < 6:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Password must be at least 6 characters")
+
+    try:
+        oid = ObjectId(user_id)
+    except Exception:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid user id")
+
+    control_db = get_control_database()
+    user_doc = await control_db["users"].find_one({"_id": oid, "tenant_id": tenant_id})
+    if not user_doc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    from datetime import datetime, timezone
+    await control_db["users"].update_one(
+        {"_id": oid},
+        {"$set": {"password_hash": hash_password(new_password), "password_changed_at": datetime.now(timezone.utc)}},
+    )
+    return {"ok": True}
 
 
 @router.post("/tenants/{tenant_id}/users")

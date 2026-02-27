@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import PipeBar from '../../components/PipeBar';
 import { executeOrder, getErrorMessage } from '../../api';
@@ -117,6 +117,26 @@ export default function AnalysisView({ analysisResponse, recipient, onExecuted, 
     );
   }, [aggregatedRemaindersByBlock]);
 
+  // By default, treat all remainders as \"keep\" so the user only has
+  // to interact when they explicitly want to discard something.
+  useEffect(() => {
+    setRemainderDecisions((prev) => {
+      if (Object.keys(prev || {}).length > 0) return prev;
+      const initial = {};
+      Array.from(aggregatedRemaindersByBlock.values()).forEach((group) => {
+        group
+          .filter((agg) => agg.count > 0)
+          .forEach((agg) => {
+            getActiveEntriesForAgg(agg).forEach((entry) => {
+              const key = makeEntryKey(entry);
+              initial[key] = { keep: true };
+            });
+          });
+      });
+      return initial;
+    });
+  }, [aggregatedRemaindersByBlock]);
+
   // For the visual "How it will be made" section, group identical cut patterns
   // so we don't render one row per physical pipe when they are all the same.
   const groupedResultsByBlock = useMemo(() => {
@@ -145,6 +165,7 @@ export default function AnalysisView({ analysisResponse, recipient, onExecuted, 
             template: r,
             totalCuts: 0,
             totalExactQty: 0,
+            pipeCount: 0,
           });
         }
         const group = groupsMap.get(key);
@@ -155,6 +176,7 @@ export default function AnalysisView({ analysisResponse, recipient, onExecuted, 
         } else {
           const cuts = r.cuts_from_this_pipe ?? 1;
           group.totalCuts += cuts;
+          group.pipeCount += 1;
         }
       });
 
@@ -323,9 +345,9 @@ export default function AnalysisView({ analysisResponse, recipient, onExecuted, 
                         remainder={r.remainder ?? 0}
                         fromSupplier={r.from_supplier}
                         cutType={r.cut_type}
-                        cutsFromThisPipe={isExact ? undefined : g.totalCuts || r.cuts_from_this_pipe}
+                        cutsFromThisPipe={isExact ? undefined : r.cuts_from_this_pipe ?? g.totalCuts}
                         cutLength={r.cut_length}
-                        quantityUsed={isExact ? g.totalExactQty || r.quantity_used : undefined}
+                        quantityUsed={isExact ? g.totalExactQty || r.quantity_used : g.pipeCount || 1}
                       />
                     </div>
                   );

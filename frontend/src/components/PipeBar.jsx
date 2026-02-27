@@ -12,8 +12,9 @@ export default function PipeBar({
   cutLength,
   quantityUsed,
 }) {
-  const pipesUsed = quantityUsed != null ? quantityUsed : 1;
-  const pipesLabel = `${formatNumber(pipesUsed)} pipe${pipesUsed === 1 ? '' : 's'}`;
+  // quantityUsed = number of physical pipes involved (exact matches or non-exact groups)
+  const pipeCount = quantityUsed ?? 1;
+  const pipesLabel = `${formatNumber(pipeCount)} pipe${pipeCount === 1 ? '' : 's'}`;
 
   if (cutType === 'exact') {
     return (
@@ -25,7 +26,9 @@ export default function PipeBar({
         className="rounded-lg border border-border bg-surface-elevated/50 p-4 space-y-2"
       >
         <p className="text-sm font-sans text-muted">
-          Using {pipesLabel} of length{' '}
+          Using{' '}
+          <span className="font-mono text-slate-100">{pipesLabel}</span>{' '}
+          of length{' '}
           <span className="font-mono text-slate-100">{formatNumber(sourceLength)}</span>
           {fromSupplier ? <span className="text-xs text-muted"> — from {fromSupplier}</span> : null}
         </p>
@@ -50,11 +53,13 @@ export default function PipeBar({
 
   const usedPct = sourceLength > 0 ? (usedLength / sourceLength) * 100 : 0;
   const remPct = sourceLength > 0 ? (remainder / sourceLength) * 100 : 0;
+
+  // "X cuts of Y from N pipes" — show per-pipe cut count + pipe count
   const cutLabel =
     cutsFromThisPipe != null && cutLength != null
-      ? `${formatNumber(cutsFromThisPipe)} cut${cutsFromThisPipe !== 1 ? 's' : ''} of ${formatNumber(
-          cutLength,
-        )} from each pipe`
+      ? pipeCount === 1
+        ? `${formatNumber(cutsFromThisPipe)} cut${cutsFromThisPipe !== 1 ? 's' : ''} of ${formatNumber(cutLength)} from 1 pipe`
+        : `${formatNumber(cutsFromThisPipe)} cut${cutsFromThisPipe !== 1 ? 's' : ''} of ${formatNumber(cutLength)} from each of ${formatNumber(pipeCount)} pipes`
       : null;
 
   return (
@@ -64,12 +69,14 @@ export default function PipeBar({
       transition={{ duration: 0.3, ease: [0.23, 1, 0.32, 1] }}
       whileHover={{ scale: 1.02, y: -2 }}
       className="rounded-lg border border-border bg-surface-elevated/50 p-4 space-y-2"
-      >
-        <p className="text-sm font-sans text-muted">
-          Using {pipesLabel} of length{' '}
-          <span className="font-mono text-slate-100">{formatNumber(sourceLength)}</span>
-          {fromSupplier ? <span className="text-xs text-muted"> — from {fromSupplier}</span> : null}
-        </p>
+    >
+      <p className="text-sm font-sans text-muted">
+        Using{' '}
+        <span className="font-mono text-slate-100">{pipesLabel}</span>{' '}
+        of length{' '}
+        <span className="font-mono text-slate-100">{formatNumber(sourceLength)}</span>
+        {fromSupplier ? <span className="text-xs text-muted"> — from {fromSupplier}</span> : null}
+      </p>
       {cutLabel != null && (
         <motion.p
           initial={{ opacity: 0, x: -10 }}

@@ -90,6 +90,7 @@ export default function OrderHistory({ refreshTrigger }) {
             template: r,
             totalCuts: 0,
             totalExactQty: 0,
+            pipeCount: 0,
           });
         }
         const group = groupsMap.get(key);
@@ -100,6 +101,7 @@ export default function OrderHistory({ refreshTrigger }) {
         } else {
           const cuts = r.cuts_from_this_pipe ?? 1;
           group.totalCuts += cuts;
+          group.pipeCount += 1;
         }
       });
 
@@ -292,9 +294,9 @@ export default function OrderHistory({ refreshTrigger }) {
                                     remainder={r.remainder ?? 0}
                                     fromSupplier={r.from_supplier}
                                     cutType={r.cut_type}
-                                    cutsFromThisPipe={isExact ? undefined : g.totalCuts || r.cuts_from_this_pipe}
+                                    cutsFromThisPipe={isExact ? undefined : r.cuts_from_this_pipe ?? g.totalCuts}
                                     cutLength={r.cut_length}
-                                    quantityUsed={isExact ? g.totalExactQty || r.quantity_used : undefined}
+                                    quantityUsed={isExact ? g.totalExactQty || r.quantity_used : g.pipeCount || 1}
                                   />
                                 </div>
                               );

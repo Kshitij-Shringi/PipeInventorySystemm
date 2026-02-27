@@ -21,6 +21,22 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+// When the server rejects a tenant token (e.g. after password reset), clear the
+// session and redirect to login so the user is forced to sign in again.
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      authToken = null;
+      window.localStorage.removeItem('auth_token');
+      if (!window.location.pathname.startsWith('/login')) {
+        window.location.href = '/login';
+      }
+    }
+    return Promise.reject(error);
+  },
+);
+
 const adminApi = axios.create({
   baseURL: API_BASE_URL,
 });
@@ -40,7 +56,17 @@ export function getErrorMessage(err, fallback = 'Request failed') {
   if (typeof d === 'string') return d;
   if (Array.isArray(d)) {
     const msgs = d.map((x) => x.msg ?? x.message).filter(Boolean);
-    return msgs.length ? msgs.join('; ') : 'Validation error';
+    if (!msgs.length) return 'Validation error';
+
+    const lower = msgs.join(' ').toLowerCase();
+    if (lower.includes('email address') && lower.includes('at least 6 characters')) {
+      return 'Please enter a valid email address and a password with at least 6 characters.';
+    }
+
+    if (msgs.length > 1) {
+      return `Please fix the highlighted fields: ${msgs.join(' · ')}`;
+    }
+    return msgs[0];
   }
   return String(d);
 }
@@ -172,6 +198,21 @@ export async function deleteTenantUser(id) {
   return data;
 }
 
+export async function resetTenantUserPassword(userId, newPassword) {
+  const { data } = await api.patch(`/auth/users/${userId}/reset-password`, { new_password: newPassword });
+  return data;
+}
+
+export async function updateMyTenant({ name, logo_url }) {
+  const { data } = await api.put('/auth/tenant', { name, logo_url });
+  return data;
+}
+
+export async function changeMyPassword({ current_password, new_password }) {
+  const { data } = await api.patch('/auth/me/password', { current_password, new_password });
+  return data;
+}
+
 // Global admin API
 export function setAdminToken(token) {
   adminToken = token || null;
@@ -264,5 +305,22 @@ export async function adminApproveTenantRequest(requestId, { tenant_name, passwo
 
 export async function adminRejectTenantRequest(requestId) {
   const { data } = await adminApi.post(`/admin/tenant-requests/${requestId}/reject`);
+  return data;
+}
+
+export async function adminFetchTenantInventory(tenantId, skip = 0, limit = 10) {
+  const { data } = await adminApi.get(`/admin/tenants/${tenantId}/inventory`, { params: { skip, limit } });
+  return data;
+}
+
+export async function adminFetchTenantOrders(tenantId, skip = 0, limit = 10) {
+  const { data } = await adminApi.get(`/admin/tenants/${tenantId}/orders`, { params: { skip, limit } });
+  return data;
+}
+
+export async function adminResetUserPassword(tenantId, userId, newPassword) {
+  const { data } = await adminApi.patch(`/admin/tenants/${tenantId}/users/${userId}/reset-password`, {
+    new_password: newPassword,
+  });
   return data;
 }

@@ -70,6 +70,13 @@ export function AuthProvider({ children }) {
     apiLogout();
   }
 
+  async function refreshTenant() {
+    try {
+      const data = await fetchSession();
+      if (data?.tenant) setTenant(data.tenant);
+    } catch {/* silent */}
+  }
+
   const value = {
     token,
     email,
@@ -81,6 +88,7 @@ export function AuthProvider({ children }) {
     isTenantAdmin: role === 'tenant_admin' || role === 'superadmin',
     loginToken: handleLogin,
     logout: handleLogout,
+    refreshTenant,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

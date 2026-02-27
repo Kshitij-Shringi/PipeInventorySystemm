@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { motion } from 'framer-motion';
-import { LogIn, Mail, Lock, ArrowRight, CheckCircle2 } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { LogIn, Mail, Lock, ArrowRight, CheckCircle2, HelpCircle, X, Eye, EyeOff } from 'lucide-react';
 import { login, getErrorMessage } from '../api';
 import { useAuth } from '../AuthContext';
 
@@ -12,6 +12,8 @@ export default function Login() {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [showForgot, setShowForgot] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -154,16 +156,26 @@ export default function Login() {
                   <Lock size={14} />
                   Password
                 </label>
-                <input
-                  id="login-password"
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="w-full px-4 py-3 rounded-lg bg-[#05060b] border border-border/60 text-sm text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-accent/70 focus:border-transparent transition-all"
-                  placeholder="Enter your password"
-                  autoComplete="current-password"
-                  required
-                />
+                <div className="relative">
+                  <input
+                    id="login-password"
+                    type={showPassword ? 'text' : 'password'}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="w-full px-4 py-3 pr-11 rounded-lg bg-[#05060b] border border-border/60 text-sm text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-accent/70 focus:border-transparent transition-all"
+                    placeholder="Enter your password"
+                    autoComplete="current-password"
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((v) => !v)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-accent transition-colors"
+                    tabIndex={-1}
+                  >
+                    {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
               </div>
               <motion.button
                 type="submit"
@@ -184,7 +196,53 @@ export default function Login() {
                   </>
                 )}
               </motion.button>
+
+              <div className="text-center mt-3">
+                <button
+                  type="button"
+                  onClick={() => setShowForgot((v) => !v)}
+                  className="text-xs text-gray-500 hover:text-accent transition-colors"
+                >
+                  Forgot password?
+                </button>
+              </div>
             </form>
+
+            <AnimatePresence>
+              {showForgot && (
+                <motion.div
+                  initial={{ opacity: 0, y: -8, height: 0 }}
+                  animate={{ opacity: 1, y: 0, height: 'auto' }}
+                  exit={{ opacity: 0, y: -8, height: 0 }}
+                  transition={{ duration: 0.22 }}
+                  className="overflow-hidden"
+                >
+                  <div className="mt-4 rounded-xl border border-accent/30 bg-accent/5 px-4 py-4 relative">
+                    <button
+                      type="button"
+                      onClick={() => setShowForgot(false)}
+                      className="absolute top-3 right-3 text-muted hover:text-white transition-colors"
+                    >
+                      <X size={14} />
+                    </button>
+                    <div className="flex items-start gap-3">
+                      <HelpCircle size={18} className="text-accent flex-shrink-0 mt-0.5" />
+                      <div>
+                        <p className="text-sm font-semibold text-white mb-1">Can't sign in?</p>
+                        <p className="text-xs text-gray-400 leading-relaxed">
+                          Password resets are handled by your <span className="text-white font-medium">tenant admin</span>.
+                          Contact them and they can set a new password for you from the{' '}
+                          <span className="text-accent font-medium">Users</span> page.
+                        </p>
+                        <p className="text-xs text-gray-500 mt-2">
+                          If you are the tenant admin, contact the <span className="text-white font-medium">superadmin</span> for help.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
 
             <div className="mt-6 pt-6 border-t border-border/40">
               <p className="text-xs text-gray-400 text-center">

@@ -9,6 +9,7 @@ import Orders from './screens/Orders';
 import Login from './screens/Login';
 import RegisterTenant from './screens/RegisterTenant';
 import Users from './screens/Users';
+import Settings from './screens/Settings';
 import AdminLogin from './screens/AdminLogin';
 import AdminDashboard from './screens/AdminDashboard';
 import AdminTenantDetail from './screens/AdminTenantDetail';
@@ -100,6 +101,7 @@ function AppContent() {
             element={<PrivateRoute element={<Orders refreshTrigger={ordersRefresh} />} />}
           />
           <Route path="/users" element={<AdminRoute element={<Users />} />} />
+          <Route path="/settings" element={<PrivateRoute element={<Settings />} />} />
         </Routes>
       </main>
     </div>

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { Users as UsersIcon, UserPlus, Shield, Trash2, AlertTriangle, X } from 'lucide-react';
+import { Users as UsersIcon, UserPlus, Shield, Trash2, AlertTriangle, X, KeyRound, Eye, EyeOff } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { createTenantUser, fetchTenantUsers, updateTenantUserRole, deleteTenantUser, getErrorMessage } from '../api';
+import { createTenantUser, fetchTenantUsers, updateTenantUserRole, deleteTenantUser, resetTenantUserPassword, getErrorMessage } from '../api';
 import { useAuth } from '../AuthContext';
 import { useToast } from '../components/Toast';
 
@@ -16,6 +16,10 @@ export default function Users() {
   const [loadingUsers, setLoadingUsers] = useState(true);
   const [deleteTarget, setDeleteTarget] = useState(null); // { id, email }
   const [deleting, setDeleting] = useState(false);
+  const [resetTarget, setResetTarget] = useState(null); // { id, email }
+  const [resetNewPassword, setResetNewPassword] = useState('');
+  const [resetShowPassword, setResetShowPassword] = useState(false);
+  const [resetting, setResetting] = useState(false);
 
   async function loadUsers() {
     try {
@@ -63,6 +67,26 @@ export default function Users() {
       showToast(getErrorMessage(err, 'Failed to delete user'), 'error');
     } finally {
       setDeleting(false);
+    }
+  }
+
+  async function handleResetConfirm() {
+    if (!resetTarget) return;
+    if (resetNewPassword.length < 6) {
+      showToast('Password must be at least 6 characters', 'error');
+      return;
+    }
+    setResetting(true);
+    try {
+      await resetTenantUserPassword(resetTarget.id, resetNewPassword);
+      showToast(`Password reset for ${resetTarget.email}`, 'success');
+      setResetTarget(null);
+      setResetNewPassword('');
+      setResetShowPassword(false);
+    } catch (err) {
+      showToast(getErrorMessage(err, 'Failed to reset password'), 'error');
+    } finally {
+      setResetting(false);
     }
   }
 
@@ -186,8 +210,8 @@ export default function Users() {
                   <thead>
                     <tr>
                       <th className="table-th text-left">Email</th>
-                      <th className="table-th text-left w-40">Role</th>
-                      <th className="table-th text-center w-32">Actions</th>
+                      <th className="table-th text-left">Role</th>
+                      <th className="table-th text-center w-24">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -201,8 +225,8 @@ export default function Users() {
                           transition={{ duration: 0.22, delay: index * 0.02 }}
                           className="table-row-hover"
                         >
-                          <td className="table-td font-mono text-white text-left">{u.email}</td>
-                          <td className="table-td text-left w-40">
+                          <td className="table-td font-mono text-white">{u.email}</td>
+                          <td className="table-td">
                             {isTenantAdmin ? (
                               <select
                                 value={u.role}
@@ -220,7 +244,7 @@ export default function Users() {
                                     showToast(getErrorMessage(err, 'Failed to update role'), 'error');
                                   }
                                 }}
-                                className="w-36 rounded-md bg-[#05060b] border border-border/60 px-2.5 py-1.5 text-xs text-white focus:outline-none focus:ring-1 focus:ring-accent/70"
+                                className="rounded-md bg-[#05060b] border border-border/60 px-2.5 py-1.5 text-xs text-white focus:outline-none focus:ring-1 focus:ring-accent/70"
                               >
                                 <option value="user">User</option>
                                 <option value="tenant_admin">Tenant Admin</option>
@@ -232,15 +256,26 @@ export default function Users() {
                               </span>
                             )}
                           </td>
-                          <td className="table-td text-center w-32">
+                          <td className="table-td text-center w-24">
                             {isTenantAdmin && (
-                              <button
-                                type="button"
-                                onClick={() => setDeleteTarget({ id: u.id, email: u.email })}
-                                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-border/30 text-muted hover:border-danger/40 hover:text-danger"
-                              >
-                                <Trash2 size={14} />
-                              </button>
+                              <div className="inline-flex items-center gap-1.5 justify-center">
+                                <button
+                                  type="button"
+                                  title="Reset password"
+                                  onClick={() => { setResetTarget({ id: u.id, email: u.email }); setResetNewPassword(''); setResetShowPassword(false); }}
+                                  className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-border/30 text-muted hover:border-accent/40 hover:text-accent transition-colors"
+                                >
+                                  <KeyRound size={14} />
+                                </button>
+                                <button
+                                  type="button"
+                                  title="Delete user"
+                                  onClick={() => setDeleteTarget({ id: u.id, email: u.email })}
+                                  className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-border/30 text-muted hover:border-danger/40 hover:text-danger transition-colors"
+                                >
+                                  <Trash2 size={14} />
+                                </button>
+                              </div>
                             )}
                           </td>
                         </motion.tr>
@@ -254,6 +289,93 @@ export default function Users() {
         </div>
       </section>
     </motion.div>
+
+      {/* Reset password modal */}
+      <AnimatePresence>
+        {resetTarget && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 lg:left-[19rem] z-50 flex items-center justify-center bg-black/70 backdrop-blur-md"
+            onClick={() => !resetting && setResetTarget(null)}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              transition={{ type: 'spring', stiffness: 300, damping: 25 }}
+              onClick={(e) => e.stopPropagation()}
+              className="w-full max-w-md overflow-hidden rounded-2xl border border-accent/40 bg-surface/90 shadow-2xl"
+            >
+              <div className="flex items-center justify-between border-b border-border/35 px-6 py-4">
+                <div className="flex items-center gap-3">
+                  <div className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-accent/15">
+                    <KeyRound className="text-accent" size={18} />
+                  </div>
+                  <p className="font-bold text-white">Reset Password</p>
+                </div>
+                <button
+                  onClick={() => !resetting && setResetTarget(null)}
+                  className="rounded-lg p-1 text-muted hover:bg-white/5 hover:text-white"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+              <div className="space-y-5 p-6">
+                <div>
+                  <p className="text-sm text-slate-300 mb-1">Set a new password for:</p>
+                  <div className="rounded-xl border border-accent/25 bg-accent/5 px-3 py-2">
+                    <p className="font-mono text-sm text-accent">{resetTarget.email}</p>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-[0.15em] text-muted mb-2">
+                    New password
+                  </label>
+                  <div className="relative">
+                    <input
+                      type={resetShowPassword ? 'text' : 'password'}
+                      value={resetNewPassword}
+                      onChange={(e) => setResetNewPassword(e.target.value)}
+                      placeholder="Min. 6 characters"
+                      className="w-full px-3 py-2.5 pr-10 rounded-lg bg-[#05060b] border border-border/60 text-sm text-white placeholder:text-gray-500 focus:outline-none focus:ring-1 focus:ring-accent/70"
+                      autoFocus
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setResetShowPassword((v) => !v)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted hover:text-white transition-colors"
+                    >
+                      {resetShowPassword ? <EyeOff size={15} /> : <Eye size={15} />}
+                    </button>
+                  </div>
+                </div>
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => { setResetTarget(null); setResetNewPassword(''); }}
+                    disabled={resetting}
+                    className="flex-1 rounded-xl border border-border/60 bg-surface-elevated/60 px-4 py-2.5 text-sm font-semibold text-gray-300 hover:bg-surface-elevated hover:text-white transition disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleResetConfirm}
+                    disabled={resetting || resetNewPassword.length < 6}
+                    className="flex-1 rounded-xl bg-accent px-4 py-2.5 text-sm font-bold text-slate-950 hover:bg-accent/90 transition disabled:opacity-50 inline-flex items-center justify-center gap-2"
+                  >
+                    {resetting ? (
+                      <><div className="h-4 w-4 border-2 border-slate-800/30 border-t-slate-900 rounded-full animate-spin" />Resetting...</>
+                    ) : (
+                      <><KeyRound size={15} />Reset password</>
+                    )}
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Delete confirmation modal — rendered outside motion.div to avoid transform breaking fixed positioning */}
       <AnimatePresence>

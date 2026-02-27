@@ -39,8 +39,9 @@ def hash_password(password: str) -> str:
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     to_encode = data.copy()
-    expire = _now_utc() + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
-    to_encode.update({"exp": expire})
+    now = _now_utc()
+    expire = now + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
+    to_encode.update({"exp": expire, "iat": now})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 
@@ -70,6 +71,19 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> dict:
     if not user:
         raise credentials_exception
     user["id"] = str(user.get("_id"))
+
+    # Invalidate tokens issued before the last password reset.
+    password_changed_at = user.get("password_changed_at")
+    token_iat = token_data.iat
+    if password_changed_at and token_iat is not None:
+        # iat from JWT is a Unix timestamp (int); password_changed_at is a datetime.
+        if isinstance(password_changed_at, datetime):
+            changed_ts = password_changed_at.replace(tzinfo=timezone.utc).timestamp() \
+                if password_changed_at.tzinfo is None else password_changed_at.timestamp()
+        else:
+            changed_ts = float(password_changed_at)
+        if token_iat < changed_ts:
+            raise credentials_exception
 
     # Attach tenant DB name if this is a tenant-scoped user so routes don't
     # have to re-derive the database name from the raw tenant id.

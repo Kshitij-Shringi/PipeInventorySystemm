@@ -221,6 +221,81 @@ async def me(current_user: dict = Depends(get_current_active_user)):
     }
 
 
+@router.put("/tenant")
+async def update_my_tenant(
+    body: dict,
+    current_user: dict = Depends(get_current_active_user),
+):
+    """
+    Tenant admin updates their own tenant's display name and/or logo URL.
+    """
+    role = current_user.get("role")
+    if role != "tenant_admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only tenant admins can update tenant settings")
+
+    tenant_id = current_user.get("tenant_id")
+    if not tenant_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="User is not associated with a tenant")
+
+    updates: dict = {}
+    if "name" in body and isinstance(body.get("name"), str) and body["name"].strip():
+        updates["name"] = body["name"].strip()
+    if "logo_url" in body:
+        updates["logo_url"] = body["logo_url"] or None
+
+    if not updates:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No valid fields to update")
+
+    control_db = get_control_database()
+    try:
+        oid = ObjectId(tenant_id)
+    except Exception:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid tenant id")
+
+    result = await control_db["tenants"].update_one({"_id": oid}, {"$set": updates})
+    if result.matched_count == 0:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tenant not found")
+
+    doc = await control_db["tenants"].find_one({"_id": oid})
+    return {
+        "id": str(doc["_id"]),
+        "name": doc.get("name"),
+        "logo_url": doc.get("logo_url"),
+    }
+
+
+@router.patch("/me/password")
+async def change_my_password(
+    body: dict,
+    current_user: dict = Depends(get_current_active_user),
+):
+    """
+    Any authenticated user changes their own password.
+    Requires current password for verification.
+    """
+    current_password = (body.get("current_password") or "").strip()
+    new_password = (body.get("new_password") or "").strip()
+
+    if not current_password:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Current password is required")
+    if len(new_password) < 6:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="New password must be at least 6 characters")
+
+    if not verify_password(current_password, current_user.get("password_hash", "")):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Current password is incorrect")
+
+    from datetime import datetime, timezone
+    control_db = get_control_database()
+    await control_db["users"].update_one(
+        {"_id": current_user["_id"]},
+        {"$set": {
+            "password_hash": hash_password(new_password),
+            "password_changed_at": datetime.now(timezone.utc),
+        }},
+    )
+    return {"ok": True}
+
+
 @router.patch("/users/{user_id}", response_model=UserPublic)
 async def update_tenant_user(
     user_id: str,
@@ -259,6 +334,48 @@ async def update_tenant_user(
     await control_db["users"].update_one({"_id": oid}, {"$set": {"role": new_role}})
     updated = await control_db["users"].find_one({"_id": oid})
     return UserPublic(id=str(updated["_id"]), email=updated.get("email", ""), role=updated.get("role", "user"))
+
+
+@router.patch("/users/{user_id}/reset-password")
+async def reset_tenant_user_password(
+    user_id: str,
+    body: dict,
+    current_user: dict = Depends(get_current_active_user),
+):
+    """
+    Tenant admin resets the password of any user within the same tenant.
+    """
+    role = current_user.get("role")
+    if role not in {"tenant_admin", "superadmin"}:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only tenant admins can reset passwords")
+
+    tenant_id = current_user.get("tenant_id")
+    if not tenant_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Current user is not scoped to a tenant")
+
+    new_password = (body.get("new_password") or "").strip()
+    if len(new_password) < 6:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Password must be at least 6 characters")
+
+    try:
+        oid = ObjectId(user_id)
+    except Exception:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid user id")
+
+    control_db = get_control_database()
+    user_doc = await control_db["users"].find_one({"_id": oid, "tenant_id": tenant_id})
+    if not user_doc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    if str(user_doc["_id"]) == str(current_user.get("id")):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Use your profile settings to change your own password")
+
+    from datetime import datetime, timezone
+    await control_db["users"].update_one(
+        {"_id": oid},
+        {"$set": {"password_hash": hash_password(new_password), "password_changed_at": datetime.now(timezone.utc)}},
+    )
+    return {"ok": True}
 
 
 @router.delete("/users/{user_id}")

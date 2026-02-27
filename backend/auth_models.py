@@ -70,6 +70,7 @@ class TokenData(BaseModel):
     role: Optional[str] = None
     email: Optional[str] = None
     exp: Optional[int] = None
+    iat: Optional[int] = None
 
 
 def utc_now() -> datetime:
