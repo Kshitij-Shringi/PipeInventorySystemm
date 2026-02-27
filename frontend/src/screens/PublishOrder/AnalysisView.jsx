@@ -532,20 +532,10 @@ export default function AnalysisView({ analysisResponse, recipient, onExecuted, 
           className="btn-success inline-flex items-center gap-2"
         >
           {executing ? (
-            <motion.div
-              animate={{ rotate: 360 }}
-              transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
-            >
-              Processing…
-            </motion.div>
+            <>Processing…</>
           ) : (
             <>
-              <motion.div
-                animate={allDecided ? { scale: [1, 1.2, 1] } : {}}
-                transition={{ duration: 0.5, repeat: Infinity, repeatDelay: 2 }}
-              >
-                <CheckCircle size={18} />
-              </motion.div>
+              <CheckCircle size={18} />
               Confirm & execute order
             </>
           )}
