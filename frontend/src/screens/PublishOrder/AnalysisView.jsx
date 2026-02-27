@@ -52,49 +52,37 @@ export default function AnalysisView({ analysisResponse, recipient, onExecuted, 
       blockMap.set(blockIdx, Array.from(remainderMap.values()));
     });
 
-    // Second pass: check if remainders are consumed by later requirements
+    // Second pass: check if remainders are consumed by later requirements.
+    // A remainder from block X is consumed when a later block's results contain a
+    // virtual pipe result (pipe_id starts with "virtual_") whose source_length,
+    // width, height, and from_supplier match this remainder exactly.
+    // This correctly handles BOTH exact-match usage AND further-cut usage of remainders.
     blockMap.forEach((remainders, blockIdx) => {
       remainders.forEach((agg) => {
         let remainingCount = agg.count;
-        // Check if any later requirement uses this remainder
         for (let laterIdx = blockIdx + 1; laterIdx < analysis.length; laterIdx++) {
           const laterBlock = analysis[laterIdx];
-          const req = laterBlock.requirement;
-          
-          // Check if remainder matches the requirement dimensions exactly
-          if (
-            agg.remainder_length === req.length &&
-            agg.width === req.width &&
-            agg.height === req.height
-          ) {
-            // Check if this requirement was fulfilled (has results without unfulfilled)
-            const hasUnfulfilled = (laterBlock.results || []).some((r) => r.unfulfilled != null);
-            if (!hasUnfulfilled && (laterBlock.results || []).length > 0) {
-              // Check if any result used a virtual pipe (which would be our remainder)
-              const usedVirtual = (laterBlock.results || []).some(
-                (r) => r.pipe_id && r.pipe_id.toString().startsWith('virtual_')
-              );
-              // Also check if it's an exact match (could be using our remainder)
-              const hasExactMatch = (laterBlock.results || []).some(
-                (r) => r.cut_type === 'exact' && 
-                       r.source_length === agg.remainder_length &&
-                       r.width === agg.width &&
-                       r.height === agg.height
-              );
-              
-              if (usedVirtual || hasExactMatch) {
-                // This remainder was consumed by the later requirement
-                if (agg.consumedBy == null) {
-                  agg.consumedBy = laterIdx;
-                }
-                // Reduce count by how much was consumed (can't consume more than available)
-                const consumedQty = Math.min(remainingCount, req.quantity_needed || 0);
-                remainingCount = Math.max(0, remainingCount - consumedQty);
-              }
+          // Count how many virtual remainder pipes in this later block consumed our remainder.
+          // For exact-match results: quantity_used can be > 1 (multiple identical remainders taken at once).
+          // For cut results: quantity_used is always 1 (one physical virtual pipe cut).
+          const virtualConsumed = (laterBlock.results || [])
+            .filter(
+              (r) =>
+                r.pipe_id &&
+                r.pipe_id.toString().startsWith('virtual_') &&
+                r.source_length === agg.remainder_length &&
+                r.width === agg.width &&
+                r.height === agg.height &&
+                r.from_supplier === agg.from_supplier,
+            )
+            .reduce((sum, r) => sum + (r.quantity_used ?? 1), 0);
+          if (virtualConsumed > 0) {
+            if (agg.consumedBy == null) {
+              agg.consumedBy = laterIdx;
             }
+            remainingCount = Math.max(0, remainingCount - virtualConsumed);
           }
         }
-        // Update the count to reflect consumption
         agg.count = remainingCount;
       });
     });
