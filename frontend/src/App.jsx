@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { SpeedInsights } from '@vercel/speed-insights/react';
 import { ToastProvider } from './components/Toast';
 import Navbar from './components/Navbar';
 import Inventory from './screens/Inventory';
@@ -112,6 +113,7 @@ export default function App() {
       <AuthProvider>
         <BrowserRouter>
           <AppContent />
+          <SpeedInsights />
         </BrowserRouter>
       </AuthProvider>
     </ToastProvider>
