@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120">
+  <rect width="120" height="120" rx="24" fill="#0f141e" />
+
+  <path d="M 35 25 H 70 A 25 25 0 0 1 70 75 H 55 V 95 H 35 Z M 55 45 H 70 A 5 5 0 0 0 70 55 H 55 Z" fill="#f59e0b" fill-rule="evenodd"/>
+
+  <g stroke="#0f141e" stroke-width="4" stroke-linejoin="round">
+    <rect x="25" y="55" width="70" height="10" fill="#f59e0b" />
+    <polygon points="12,60 30,45 30,75" fill="#f59e0b" />
+    <polygon points="108,60 90,45 90,75" fill="#f59e0b" />
+  </g>
+
+  <g stroke="#0f141e" stroke-width="2.5" stroke-linecap="round">
+    <line x1="35" y1="55" x2="35" y2="60" />
+    <line x1="45" y1="55" x2="45" y2="60" />
+    <line x1="55" y1="55" x2="55" y2="60" />
+    <line x1="65" y1="55" x2="65" y2="60" />
+    <line x1="75" y1="55" x2="75" y2="60" />
+    <line x1="85" y1="55" x2="85" y2="60" />
+  </g>
+</svg>
