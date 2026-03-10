@@ -3,6 +3,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { CheckCircle2, Package, RotateCcw, Trash2, ArrowLeft, Sparkles } from 'lucide-react';
 import { formatDimensionsString, formatNumber } from '../../utils/format';
 import { downloadCsv } from '../../utils/csv';
+import PipeBar from '../../components/PipeBar';
+import { downloadCutWeldPlanPdf } from '../../utils/planPdf';
 
 export default function OrderSummary({ result, onBackToInventory }) {
   const summary = result?.summary ?? {};
@@ -97,6 +99,15 @@ export default function OrderSummary({ result, onBackToInventory }) {
       columns,
       planRows,
     );
+  };
+
+  const downloadPlanPdf = () => {
+    downloadCutWeldPlanPdf({
+      recipient,
+      analysis,
+      planRows,
+      filenamePrefix: (recipient || 'order').toString().trim(),
+    });
   };
 
   if (result == null) {
@@ -270,15 +281,134 @@ export default function OrderSummary({ result, onBackToInventory }) {
             <h2 className="section-title">Cut & weld plan</h2>
             <p className="text-xs text-muted mt-0.5">How each requirement will be produced</p>
           </div>
-          <button
-            type="button"
-            onClick={exportPlanCsv}
-            disabled={planRows.length === 0}
-            className="btn-ghost inline-flex items-center gap-2 px-4 py-2 text-xs disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            Export plan (CSV)
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={downloadPlanPdf}
+              disabled={planRows.length === 0}
+              className="btn-ghost inline-flex items-center gap-2 px-4 py-2 text-xs disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Download PDF
+            </button>
+            <button
+              type="button"
+              onClick={exportPlanCsv}
+              disabled={planRows.length === 0}
+              className="btn-ghost inline-flex items-center gap-2 px-4 py-2 text-xs disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Export CSV
+            </button>
+          </div>
         </div>
+
+        {/* Visualisation */}
+        <div className="px-6 pt-5">
+          <div className="rounded-2xl border border-border/35 bg-surface-elevated/15 p-4">
+            <p className="text-xs font-sans font-semibold text-muted uppercase tracking-wider mb-3">
+              Visual plan (cuts + welds)
+            </p>
+            <div className="space-y-4">
+              {(analysis || []).length === 0 ? (
+                <div className="text-sm text-muted">No analysis data available.</div>
+              ) : (
+                (analysis || []).map((block, idx) => (
+                  <div key={`vis-${idx}`} className="rounded-xl border border-border/30 bg-black/15 p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                      <div className="font-sans text-sm text-white font-semibold">
+                        Requirement {idx + 1}
+                      </div>
+                      <div className="font-mono text-xs text-accent">
+                        {formatDimensionsString(
+                          `${formatNumber(block?.requirement?.length)} × ${formatNumber(
+                            block?.requirement?.width,
+                          )} × ${formatNumber(block?.requirement?.height)}`,
+                        )}{' '}
+                        — Qty: {formatNumber(block?.requirement?.quantity_needed)}
+                      </div>
+                    </div>
+                    <div className="space-y-3">
+                      {(block?.results || [])
+                        .filter((r) => r && r.unfulfilled == null)
+                        .map((r, j) => {
+                          if (r.cut_type === 'weld') {
+                            return (
+                              <div
+                                key={`weldvis-${idx}-${j}`}
+                                className="rounded-xl border border-border/35 bg-surface-elevated/20 px-4 py-3"
+                              >
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                  <div className="font-sans text-sm text-white font-semibold">
+                                    Weld assembly
+                                    <span className="ml-2 text-xs text-muted font-normal">
+                                      ({r.welds_needed ?? Math.max(0, (r.segments?.length ?? 0) - 1)} welds)
+                                    </span>
+                                  </div>
+                                  <div className="font-mono text-xs text-accent">
+                                    Target: {formatNumber(r.required_length ?? block?.requirement?.length)} mm
+                                  </div>
+                                </div>
+                                <div className="mt-2 space-y-2">
+                                  {(r.segments || []).map((s, k) => (
+                                    <PipeBar
+                                      key={`segbar-${idx}-${j}-${k}-${s.pipe_id || ''}`}
+                                      sourceLength={s.source_length}
+                                      usedLength={s.segment_length}
+                                      remainder={s.remainder ?? 0}
+                                      fromSupplier={s.from_supplier}
+                                      cutType={s.remainder > 0 ? 'cut' : 'exact'}
+                                      cutsFromThisPipe={s.remainder > 0 ? 1 : undefined}
+                                      cutLength={s.segment_length}
+                                      quantityUsed={1}
+                                    />
+                                  ))}
+                                </div>
+                              </div>
+                            );
+                          }
+
+                          if (r.part_of_weld) return null;
+                          if (!r.pipe_id) return null;
+
+                          if (r.cut_type === 'exact') {
+                            return (
+                              <PipeBar
+                                key={`bar-${idx}-${j}-${r.pipe_id}`}
+                                sourceLength={r.source_length}
+                                usedLength={r.source_length}
+                                remainder={0}
+                                fromSupplier={r.from_supplier}
+                                cutType="exact"
+                                quantityUsed={r.quantity_used ?? 1}
+                              />
+                            );
+                          }
+
+                          if (r.cut_type === 'cut') {
+                            return (
+                              <PipeBar
+                                key={`bar-${idx}-${j}-${r.pipe_id}`}
+                                sourceLength={r.source_length}
+                                usedLength={r.used_length ?? r.source_length - (r.remainder ?? 0)}
+                                remainder={r.remainder ?? 0}
+                                fromSupplier={r.from_supplier}
+                                cutType="cut"
+                                cutsFromThisPipe={r.cuts_from_this_pipe ?? 1}
+                                cutLength={r.cut_length}
+                                quantityUsed={1}
+                              />
+                            );
+                          }
+
+                          return null;
+                        })}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+
         <div className="overflow-x-auto no-scrollbar">
           <table className="w-full min-w-[900px]">
             <thead>

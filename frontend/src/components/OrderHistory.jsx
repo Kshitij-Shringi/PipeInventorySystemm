@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { ClipboardList, Loader2, Package, Trash2, RotateCcw, ChevronDown, ChevronRight, ChevronLeft, Calendar, X, AlertTriangle } from 'lucide-react';
+import { ClipboardList, Loader2, Package, Trash2, RotateCcw, ChevronDown, ChevronRight, ChevronLeft, Calendar, X, AlertTriangle, FileDown } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { fetchOrders, getErrorMessage } from '../api';
 import { useToast } from './Toast';
 import { formatNumber, formatDimensions, formatDimensionsString } from '../utils/format';
 import PipeBar from './PipeBar';
+import { downloadCutWeldPlanPdf } from '../utils/planPdf';
 
 export default function OrderHistory({ refreshTrigger }) {
   const [orders, setOrders] = useState([]);
@@ -60,6 +61,87 @@ export default function OrderHistory({ refreshTrigger }) {
     setStartDate('');
     setEndDate('');
     setPage(1);
+  };
+
+  const buildPlanRows = (analysis) => {
+    const rows = [];
+    (analysis || []).forEach((block, blockIdx) => {
+      const req = block.requirement || {};
+      const reqDims = `${formatNumber(req.length)} × ${formatNumber(req.width)} × ${formatNumber(req.height)}`;
+      (block.results || []).forEach((r) => {
+        if (r.cut_type === 'weld') {
+          (r.segments || []).forEach((s, idxS) => {
+            rows.push({
+              requirement_no: blockIdx + 1,
+              required_dimensions: reqDims,
+              action: 'WELD',
+              piece_no: idxS + 1,
+              segment_length_mm: s.segment_length ?? '',
+              source_pipe_length_mm: s.source_length ?? '',
+              remainder_mm: s.remainder ?? 0,
+              supplier: s.from_supplier ?? '',
+              notes: `Assembly welds: ${r.welds_needed ?? Math.max(0, (r.segments?.length ?? 0) - 1)}`,
+            });
+          });
+          return;
+        }
+        if (r.unfulfilled != null) {
+          rows.push({
+            requirement_no: blockIdx + 1,
+            required_dimensions: reqDims,
+            action: 'UNFULFILLED',
+            piece_no: '',
+            segment_length_mm: '',
+            source_pipe_length_mm: '',
+            remainder_mm: '',
+            supplier: '',
+            notes: `Missing qty: ${r.unfulfilled}`,
+          });
+          return;
+        }
+        if (!r.pipe_id || r.part_of_weld) return;
+
+        if (r.cut_type === 'exact') {
+          rows.push({
+            requirement_no: blockIdx + 1,
+            required_dimensions: reqDims,
+            action: 'EXACT',
+            piece_no: '',
+            segment_length_mm: req.length ?? '',
+            source_pipe_length_mm: r.source_length ?? '',
+            remainder_mm: 0,
+            supplier: r.from_supplier ?? '',
+            notes: `Qty used: ${r.quantity_used ?? 1}`,
+          });
+          return;
+        }
+        if (r.cut_type === 'cut') {
+          rows.push({
+            requirement_no: blockIdx + 1,
+            required_dimensions: reqDims,
+            action: 'CUT',
+            piece_no: '',
+            segment_length_mm: r.cut_length ?? req.length ?? '',
+            source_pipe_length_mm: r.source_length ?? '',
+            remainder_mm: r.remainder ?? 0,
+            supplier: r.from_supplier ?? '',
+            notes: `Cuts from this pipe: ${r.cuts_from_this_pipe ?? 1}`,
+          });
+        }
+      });
+    });
+    return rows;
+  };
+
+  const handleDownloadOrderPdf = (order) => {
+    if (!order?.analysis || order.analysis.length === 0) return;
+    const planRows = buildPlanRows(order.analysis);
+    downloadCutWeldPlanPdf({
+      recipient: order.recipient || '',
+      analysis: order.analysis,
+      planRows,
+      filenamePrefix: (order.recipient || 'order').toString().trim(),
+    });
   };
 
   // Group analysis results per requirement similar to the \"How it will be made\" view
@@ -229,6 +311,18 @@ export default function OrderHistory({ refreshTrigger }) {
                   <Trash2 size={16} />
                   {formatNumber(order.summary?.discarded ?? 0)} discarded
                 </motion.span>
+                {order.analysis && order.analysis.length > 0 && (
+                  <motion.button
+                    type="button"
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={() => handleDownloadOrderPdf(order)}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface border border-border text-xs font-sans font-semibold text-muted hover:text-white hover:bg-surface-elevated transition-colors"
+                  >
+                    <FileDown size={14} />
+                    Download plan (PDF)
+                  </motion.button>
+                )}
               </motion.div>
             </div>
 
