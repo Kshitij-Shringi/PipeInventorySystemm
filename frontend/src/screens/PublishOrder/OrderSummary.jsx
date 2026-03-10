@@ -1,12 +1,103 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { CheckCircle2, Package, RotateCcw, Trash2, ArrowLeft, Sparkles } from 'lucide-react';
 import { formatDimensionsString, formatNumber } from '../../utils/format';
+import { downloadCsv } from '../../utils/csv';
 
 export default function OrderSummary({ result, onBackToInventory }) {
   const summary = result?.summary ?? {};
   const detail = result?.fulfillment_detail ?? [];
   const recipient = result?.recipient ?? '';
+  const analysis = result?.analysis ?? [];
+
+  const planRows = useMemo(() => {
+    const rows = [];
+    analysis.forEach((block, blockIdx) => {
+      const req = block.requirement || {};
+      const reqDims = `${formatNumber(req.length)} × ${formatNumber(req.width)} × ${formatNumber(req.height)}`;
+      (block.results || []).forEach((r) => {
+        if (r.cut_type === 'weld') {
+          (r.segments || []).forEach((s, idxS) => {
+            rows.push({
+              requirement_no: blockIdx + 1,
+              required_dimensions: reqDims,
+              action: 'WELD',
+              piece_no: idxS + 1,
+              segment_length_mm: s.segment_length ?? '',
+              source_pipe_length_mm: s.source_length ?? '',
+              remainder_mm: s.remainder ?? 0,
+              supplier: s.from_supplier ?? '',
+              notes: `Assembly welds: ${r.welds_needed ?? Math.max(0, (r.segments?.length ?? 0) - 1)}`,
+            });
+          });
+          return;
+        }
+        if (r.unfulfilled != null) {
+          rows.push({
+            requirement_no: blockIdx + 1,
+            required_dimensions: reqDims,
+            action: 'UNFULFILLED',
+            piece_no: '',
+            segment_length_mm: '',
+            source_pipe_length_mm: '',
+            remainder_mm: '',
+            supplier: '',
+            notes: `Missing qty: ${r.unfulfilled}`,
+          });
+          return;
+        }
+        if (!r.pipe_id || r.part_of_weld) return;
+
+        if (r.cut_type === 'exact') {
+          rows.push({
+            requirement_no: blockIdx + 1,
+            required_dimensions: reqDims,
+            action: 'EXACT',
+            piece_no: '',
+            segment_length_mm: req.length ?? '',
+            source_pipe_length_mm: r.source_length ?? '',
+            remainder_mm: 0,
+            supplier: r.from_supplier ?? '',
+            notes: `Qty used: ${r.quantity_used ?? 1}`,
+          });
+          return;
+        }
+        if (r.cut_type === 'cut') {
+          rows.push({
+            requirement_no: blockIdx + 1,
+            required_dimensions: reqDims,
+            action: 'CUT',
+            piece_no: '',
+            segment_length_mm: r.cut_length ?? req.length ?? '',
+            source_pipe_length_mm: r.source_length ?? '',
+            remainder_mm: r.remainder ?? 0,
+            supplier: r.from_supplier ?? '',
+            notes: `Cuts from this pipe: ${r.cuts_from_this_pipe ?? 1}`,
+          });
+        }
+      });
+    });
+    return rows;
+  }, [analysis]);
+
+  const exportPlanCsv = () => {
+    const columns = [
+      'requirement_no',
+      'required_dimensions',
+      'action',
+      'piece_no',
+      'segment_length_mm',
+      'source_pipe_length_mm',
+      'remainder_mm',
+      'supplier',
+      'notes',
+    ];
+    downloadCsv(
+      `${(recipient || 'order').toString().trim().replace(/\s+/g, '_')}-cut-weld-plan.csv`,
+      columns,
+      planRows,
+    );
+  };
 
   if (result == null) {
     return (
@@ -164,6 +255,83 @@ export default function OrderSummary({ result, onBackToInventory }) {
             <ArrowLeft size={16} />
             Back to inventory
           </motion.button>
+        </div>
+      </motion.section>
+
+      {/* Cut & Weld Plan */}
+      <motion.section
+        initial={{ opacity: 0, y: 16 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.34, duration: 0.45 }}
+        className="card overflow-hidden"
+      >
+        <div className="card-header route-line flex items-center justify-between gap-3">
+          <div>
+            <h2 className="section-title">Cut & weld plan</h2>
+            <p className="text-xs text-muted mt-0.5">How each requirement will be produced</p>
+          </div>
+          <button
+            type="button"
+            onClick={exportPlanCsv}
+            disabled={planRows.length === 0}
+            className="btn-ghost inline-flex items-center gap-2 px-4 py-2 text-xs disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            Export plan (CSV)
+          </button>
+        </div>
+        <div className="overflow-x-auto no-scrollbar">
+          <table className="w-full min-w-[900px]">
+            <thead>
+              <tr>
+                <th className="table-th text-left w-24">Req #</th>
+                <th className="table-th text-left">Required</th>
+                <th className="table-th text-left w-28">Action</th>
+                <th className="table-th text-right w-28">Segment</th>
+                <th className="table-th text-right w-28">Source</th>
+                <th className="table-th text-right w-28">Remainder</th>
+                <th className="table-th text-left">Supplier</th>
+                <th className="table-th text-left">Notes</th>
+              </tr>
+            </thead>
+            <tbody>
+              <AnimatePresence>
+                {planRows.length === 0 ? (
+                  <tr>
+                    <td className="table-td text-muted" colSpan={8}>
+                      No plan data available for this order.
+                    </td>
+                  </tr>
+                ) : (
+                  planRows.map((row, i) => (
+                    <motion.tr
+                      key={i}
+                      initial={{ opacity: 0, y: 6 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: 0.05 + i * 0.01 }}
+                      className="table-row-hover"
+                    >
+                      <td className="table-td font-mono text-left">{row.requirement_no}</td>
+                      <td className="table-td font-mono text-left text-accent">
+                        {formatDimensionsString(row.required_dimensions)}
+                      </td>
+                      <td className="table-td text-left font-sans text-white">{row.action}</td>
+                      <td className="table-td text-right font-mono text-white">
+                        {row.segment_length_mm === '' ? '—' : formatNumber(row.segment_length_mm)}
+                      </td>
+                      <td className="table-td text-right font-mono text-white">
+                        {row.source_pipe_length_mm === '' ? '—' : formatNumber(row.source_pipe_length_mm)}
+                      </td>
+                      <td className="table-td text-right font-mono text-white">
+                        {row.remainder_mm === '' ? '—' : formatNumber(row.remainder_mm)}
+                      </td>
+                      <td className="table-td text-left text-gray-300">{row.supplier || '—'}</td>
+                      <td className="table-td text-left text-muted">{row.notes || ''}</td>
+                    </motion.tr>
+                  ))
+                )}
+              </AnimatePresence>
+            </tbody>
+          </table>
         </div>
       </motion.section>
     </motion.div>

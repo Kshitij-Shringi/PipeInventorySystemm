@@ -52,7 +52,8 @@ export default function AnalysisView({ analysisResponse, recipient, onExecuted, 
       blockMap.set(blockIdx, Array.from(remainderMap.values()));
     });
 
-    // Second pass: check if remainders are consumed by later requirements.
+    // Second pass: check if remainders are consumed by later requirements OR later results
+    // within the same requirement (e.g. leftover from piece 1 used by piece 2).
     // A remainder from block X is consumed when a later block's results contain a
     // virtual pipe result (pipe_id starts with "virtual_") whose source_length,
     // width, height, and from_supplier match this remainder exactly.
@@ -60,6 +61,27 @@ export default function AnalysisView({ analysisResponse, recipient, onExecuted, 
     blockMap.forEach((remainders, blockIdx) => {
       remainders.forEach((agg) => {
         let remainingCount = agg.count;
+
+        // Intra-block consumption: if later results within the same block use a virtual pipe
+        // matching this remainder, it reduces what is left to decide on.
+        const sameBlock = analysis[blockIdx];
+        if (sameBlock?.results?.length) {
+          const intraConsumed = (sameBlock.results || [])
+            .filter(
+              (r) =>
+                r.pipe_id &&
+                r.pipe_id.toString().startsWith('virtual_') &&
+                r.source_length === agg.remainder_length &&
+                r.width === agg.width &&
+                r.height === agg.height &&
+                r.from_supplier === agg.from_supplier,
+            )
+            .reduce((sum, r) => sum + (r.quantity_used ?? 1), 0);
+          if (intraConsumed > 0) {
+            remainingCount = Math.max(0, remainingCount - intraConsumed);
+          }
+        }
+
         for (let laterIdx = blockIdx + 1; laterIdx < analysis.length; laterIdx++) {
           const laterBlock = analysis[laterIdx];
           // Count how many virtual remainder pipes in this later block consumed our remainder.
@@ -131,12 +153,21 @@ export default function AnalysisView({ analysisResponse, recipient, onExecuted, 
     return analysis.map((block) => {
       const groupsMap = new Map();
       const unfulfilled = [];
+      const welds = [];
 
       (block.results || []).forEach((r) => {
         if (r.unfulfilled != null) {
           unfulfilled.push(r);
           return;
         }
+
+        if (r.cut_type === 'weld') {
+          welds.push(r);
+          return;
+        }
+
+        // Hide per-pipe segment ops that are only used to build a weld assembly.
+        if (r.part_of_weld) return;
 
         const key = JSON.stringify({
           source_length: r.source_length,
@@ -170,6 +201,7 @@ export default function AnalysisView({ analysisResponse, recipient, onExecuted, 
 
       return {
         unfulfilled,
+        welds,
         groups: Array.from(groupsMap.values()),
       };
     });
@@ -318,6 +350,48 @@ export default function AnalysisView({ analysisResponse, recipient, onExecuted, 
                 ))}
 
                 {/* Then show aggregated cut patterns */}
+                {(groupedResultsByBlock[blockIdx]?.welds || []).map((w, iW) => (
+                  <div
+                    key={`weld-${iW}`}
+                    className="rounded-xl border border-border/35 bg-surface-elevated/25 px-4 py-3"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="font-sans text-sm text-white font-semibold">
+                        Weld assembly
+                        <span className="ml-2 text-xs text-muted font-normal">
+                          ({w.welds_needed ?? Math.max(0, (w.segments?.length ?? 0) - 1)} welds)
+                        </span>
+                      </div>
+                      <div className="font-mono text-xs text-accent">
+                        Target: {formatNumber(w.required_length ?? block.requirement.length)} mm
+                      </div>
+                    </div>
+                    <div className="mt-2 space-y-2">
+                      {(w.segments || []).map((s, idxS) => (
+                        <div
+                          key={`${idxS}-${s.pipe_id || ''}-${s.source_length || ''}`}
+                          className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border/30 bg-black/20 px-3 py-2"
+                        >
+                          <div className="font-mono text-sm text-white">
+                            Segment {idxS + 1}: {formatNumber(s.segment_length)} mm
+                            <span className="text-muted font-sans font-normal ml-2">
+                              from {formatNumber(s.source_length)} mm
+                            </span>
+                          </div>
+                          <div className="text-xs text-muted font-sans">
+                            {s.from_supplier || '—'}
+                            {s.remainder > 0 ? (
+                              <span className="ml-2 text-accent font-mono">
+                                remainder {formatNumber(s.remainder)} mm
+                              </span>
+                            ) : null}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+
                 {(groupedResultsByBlock[blockIdx]?.groups || []).map((g, i) => {
                   const r = g.template;
                   const isExact = r.cut_type === 'exact';

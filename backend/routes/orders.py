@@ -154,6 +154,318 @@ def resolve_requirement(inventory: list[dict], req_length: float, req_width: flo
     return results
 
 
+def _float_eq(a: float, b: float, eps: float = 1e-4) -> bool:
+    try:
+        return abs(float(a) - float(b)) <= eps
+    except Exception:
+        return False
+
+
+def _select_pipe(local_inventory: dict, *, req_width: float, req_height: float, predicate):
+    """Return a pipe dict from local_inventory matching dims and predicate, preferring virtual_ pipes."""
+    virtual = next(
+        (
+            p
+            for p in local_inventory.values()
+            if str(p.get("id", "")).startswith("virtual_")
+            and _float_eq(p.get("width"), req_width)
+            and _float_eq(p.get("height"), req_height)
+            and p.get("quantity", 0) > 0
+            and predicate(p)
+        ),
+        None,
+    )
+    if virtual is not None:
+        return virtual
+    return next(
+        (
+            p
+            for p in local_inventory.values()
+            if not str(p.get("id", "")).startswith("virtual_")
+            and _float_eq(p.get("width"), req_width)
+            and _float_eq(p.get("height"), req_height)
+            and p.get("quantity", 0) > 0
+            and predicate(p)
+        ),
+        None,
+    )
+
+
+def _build_weld_plan(local_inventory: dict, req_length: float, req_width: float, req_height: float):
+    """
+    Build ONE welded unit plan to satisfy req_length using available pipes (same W/H).
+    Returns dict with:
+      - assembly: weld summary (no pipe_id)
+      - ops: list of per-pipe consumption ops (with pipe_id, quantity_used=1)
+    """
+    remaining = float(req_length)
+
+    # Try a few alternatives for the first pick to avoid obvious greedy dead-ends.
+    short_candidates = sorted(
+        [
+            p
+            for p in local_inventory.values()
+            if _float_eq(p.get("width"), req_width)
+            and _float_eq(p.get("height"), req_height)
+            and p.get("quantity", 0) > 0
+            and float(p.get("length")) <= remaining + 1e-4
+        ],
+        key=lambda p: float(p.get("length")),
+        reverse=True,
+    )
+
+    first_try_list = [None] + short_candidates[:5]
+
+    for first in first_try_list:
+        # Work on a scratch copy so we can backtrack the first choice.
+        scratch = {k: dict(v) for k, v in local_inventory.items()}
+        segs = []
+        ops_local = []
+        rem = float(req_length)
+        virtual_counter = 1
+
+        def consume_pipe(pipe: dict, segment_length: float, remainder: float):
+            nonlocal virtual_counter
+            pid = pipe["id"]
+            scratch[pid]["quantity"] -= 1
+            op = {
+                "pipe_id": pid,
+                "from_supplier": pipe.get("from_supplier", ""),
+                "source_length": float(pipe["length"]),
+                "width": float(pipe["width"]),
+                "height": float(pipe["height"]),
+                "quantity_used": 1,
+                "cut_type": "segment_cut" if remainder > 0 else "segment",
+                "segment_length": float(segment_length),
+                "remainder": round(float(remainder), 4),
+                "part_of_weld": True,
+            }
+            ops_local.append(op)
+            segs.append(
+                {
+                    "pipe_id": pid,
+                    "from_supplier": pipe.get("from_supplier", ""),
+                    "source_length": float(pipe["length"]),
+                    "segment_length": float(segment_length),
+                    "remainder": round(float(remainder), 4),
+                }
+            )
+
+            # Immediately make remainder available as a virtual pipe (so it can be consumed
+            # by later pieces/segments within the same requirement run).
+            if remainder and remainder > 1e-4:
+                # Ensure uniqueness
+                while True:
+                    vid = f"virtual_local_{virtual_counter}"
+                    virtual_counter += 1
+                    if vid not in scratch:
+                        break
+                scratch[vid] = {
+                    "id": vid,
+                    "length": round(float(remainder), 4),
+                    "width": float(pipe["width"]),
+                    "height": float(pipe["height"]),
+                    "quantity": 1,
+                    "from_supplier": pipe.get("from_supplier", ""),
+                }
+
+        # Optional forced first pick (a full short pipe)
+        if first is not None:
+            if scratch[first["id"]]["quantity"] <= 0:
+                continue
+            take = min(float(first["length"]), rem)
+            remainder = 0.0
+            # If first pipe is longer than rem, we will cut it instead (should not happen due to candidate filter).
+            consume_pipe(first, take, remainder)
+            rem = round(rem - take, 4)
+
+        guard = 0
+        while rem > 1e-4 and guard < 50:
+            guard += 1
+            # Exact remainder match
+            exact = _select_pipe(
+                scratch,
+                req_width=req_width,
+                req_height=req_height,
+                predicate=(lambda p, rem=rem: _float_eq(p.get("length"), rem)),
+            )
+            if exact is not None:
+                consume_pipe(exact, rem, 0.0)
+                rem = 0.0
+                break
+
+            # Use whole short pipe segment (largest <= rem) to avoid creating new waste
+            shorts = [
+                p
+                for p in scratch.values()
+                if _float_eq(p.get("width"), req_width)
+                and _float_eq(p.get("height"), req_height)
+                and p.get("quantity", 0) > 0
+                and float(p.get("length")) <= rem + 1e-4
+            ]
+            if not shorts:
+                # Cut from the SHORTEST longer pipe to minimize remainder
+                longer_candidates = [
+                    p
+                    for p in scratch.values()
+                    if _float_eq(p.get("width"), req_width)
+                    and _float_eq(p.get("height"), req_height)
+                    and p.get("quantity", 0) > 0
+                    and float(p.get("length")) > rem + 1e-4
+                ]
+                if not longer_candidates:
+                    break
+                longer = min(longer_candidates, key=lambda p: float(p.get("length")))
+                remainder = float(longer["length"]) - rem
+                consume_pipe(longer, rem, remainder)
+                rem = 0.0
+                break
+
+            best = max(shorts, key=lambda p: float(p.get("length")))
+            consume_pipe(best, float(best["length"]), 0.0)
+            rem = round(rem - float(best["length"]), 4)
+
+        if rem <= 1e-4 and segs:
+            welds = max(0, len(segs) - 1)
+            assembly = {
+                "cut_type": "weld",
+                "required_length": float(req_length),
+                "width": float(req_width),
+                "height": float(req_height),
+                "segments": segs,
+                "welds_needed": welds,
+            }
+            # Commit scratch back to local_inventory (including any virtual remainders we created).
+            # We overwrite quantities and also add new virtual ids if needed.
+            for pid, val in scratch.items():
+                if pid in local_inventory:
+                    local_inventory[pid]["quantity"] = val.get("quantity", 0)
+                else:
+                    local_inventory[pid] = dict(val)
+            return {"assembly": assembly, "ops": ops_local}
+
+    return None
+
+
+def resolve_requirement_with_weld(
+    inventory: list[dict],
+    req_length: float,
+    req_width: float,
+    req_height: float,
+    req_qty: int,
+):
+    """
+    Like resolve_requirement, but if no exact/longer pipe exists, it will propose a weld plan
+    using multiple pipes (and cutting) to satisfy the length. Remainders are emitted as usual
+    (remainder > 0) and can be kept/discarded in the publish flow.
+    """
+    results = []
+    remaining = req_qty
+    local_inventory = {p["id"]: dict(p) for p in inventory}
+    virtual_counter = 1
+
+    def add_virtual_remainder(length: float, width: float, height: float, from_supplier: str):
+        nonlocal virtual_counter
+        if not length or float(length) <= 1e-4:
+            return
+        while True:
+            vid = f"virtual_local_{virtual_counter}"
+            virtual_counter += 1
+            if vid not in local_inventory:
+                break
+        local_inventory[vid] = {
+            "id": vid,
+            "length": round(float(length), 4),
+            "width": float(width),
+            "height": float(height),
+            "quantity": 1,
+            "from_supplier": from_supplier or "",
+        }
+
+    while remaining > 0:
+        # Exact match (prefer virtual)
+        exact = _select_pipe(
+            local_inventory,
+            req_width=req_width,
+            req_height=req_height,
+            predicate=lambda p: _float_eq(p.get("length"), req_length),
+        )
+        if exact:
+            take = min(int(exact["quantity"]), remaining)
+            results.append(
+                {
+                    "pipe_id": exact["id"],
+                    "from_supplier": exact.get("from_supplier", ""),
+                    "source_length": float(exact["length"]),
+                    "width": float(exact["width"]),
+                    "height": float(exact["height"]),
+                    "quantity_used": take,
+                    "cut_type": "exact",
+                    "remainder": 0,
+                }
+            )
+            local_inventory[exact["id"]]["quantity"] -= take
+            remaining -= take
+            continue
+
+        # Cut from a longer pipe (same as existing behavior)
+        candidates = sorted(
+            [
+                p
+                for p in local_inventory.values()
+                if float(p["length"]) > float(req_length) + 1e-4
+                and _float_eq(p.get("width"), req_width)
+                and _float_eq(p.get("height"), req_height)
+                and p.get("quantity", 0) > 0
+            ],
+            key=lambda p: float(p["length"]),
+        )
+        if candidates:
+            source = candidates[0]
+            fits_in_one_pipe = int(float(source["length"]) // float(req_length))
+            cuts_this_pipe = min(fits_in_one_pipe, remaining)
+            total_used_length = float(req_length) * cuts_this_pipe
+            remainder = round(float(source["length"]) - total_used_length, 4)
+            local_inventory[source["id"]]["quantity"] -= 1
+            remaining -= cuts_this_pipe
+            results.append(
+                {
+                    "pipe_id": source["id"],
+                    "from_supplier": source.get("from_supplier", ""),
+                    "source_length": float(source["length"]),
+                    "width": float(source["width"]),
+                    "height": float(source["height"]),
+                    "quantity_used": 1,
+                    "cut_type": "cut",
+                    "cuts_from_this_pipe": cuts_this_pipe,
+                    "used_length": total_used_length,
+                    "remainder": remainder,
+                    "cut_length": float(req_length),
+                }
+            )
+            # Make the remainder immediately reusable within the same requirement.
+            if remainder > 1e-4:
+                add_virtual_remainder(
+                    remainder,
+                    float(source["width"]),
+                    float(source["height"]),
+                    source.get("from_supplier", ""),
+                )
+            continue
+
+        # Weld plan for ONE unit
+        plan = _build_weld_plan(local_inventory, req_length, req_width, req_height)
+        if not plan:
+            results.append({"unfulfilled": remaining})
+            break
+
+        # Add one assembly entry for display + underlying ops for deductions/remainders.
+        results.append(plan["assembly"])
+        results.extend(plan["ops"])
+        remaining -= 1
+
+    return results
+
 @router.get("")
 async def list_orders(
     start_date: str = None,
@@ -258,8 +570,8 @@ async def analyse_order(request: OrderRequest, current_user: dict = Depends(get_
                     "from_supplier": rem_supplier,
                 })
 
-        # Resolve this requirement using combined inventory
-        req_results = resolve_requirement(
+        # Resolve this requirement using combined inventory (supports weld plans)
+        req_results = resolve_requirement_with_weld(
             combined_inventory,
             req.length,
             req.width,
@@ -286,14 +598,22 @@ async def analyse_order(request: OrderRequest, current_user: dict = Depends(get_
                 q = r["quantity_used"]
                 
                 # Check if it's a virtual remainder pipe
-                if pid.startswith("virtual_") and pid in virtual_id_to_key:
-                    # Deduct from remainder inventory using the mapped key
-                    rem_key = virtual_id_to_key[pid]
+                if pid.startswith("virtual_"):
+                    # Deduct from remainder inventory by dimensions (works for both cross-requirement
+                    # virtual ids and same-requirement virtual_local_* ids).
+                    rem_key = (
+                        r.get("source_length"),
+                        r.get("width"),
+                        r.get("height"),
+                        r.get("from_supplier", ""),
+                    )
                     if rem_key in remainder_inventory:
                         remainder_inventory[rem_key] = max(0, remainder_inventory[rem_key] - q)
                         if remainder_inventory[rem_key] == 0:
                             del remainder_inventory[rem_key]
-                            del virtual_id_to_key[pid]
+                    # Also cleanup old mapping if present
+                    if pid in virtual_id_to_key:
+                        del virtual_id_to_key[pid]
                 else:
                     # Deduct from real inventory
                     for p in inventory:
@@ -301,8 +621,8 @@ async def analyse_order(request: OrderRequest, current_user: dict = Depends(get_
                             p["quantity"] -= q
                             break
 
-                # If this was a cut operation, add remainder to virtual inventory
-                if r.get("cut_type") == "cut" and r.get("remainder", 0) > 0:
+                # If this was a cut/segment-cut operation, add remainder to virtual inventory
+                if r.get("cut_type") in ("cut", "segment_cut") and r.get("remainder", 0) > 0:
                     rem_key = (
                         r["remainder"],
                         r["width"],
@@ -331,7 +651,6 @@ async def execute_order(request: ExecuteOrderRequest, current_user: dict = Depen
     returned_to_stock = 0
     discarded = 0
     fulfillment_detail = []
-    returned_pipes_detail = []  # Track returned pipes by dimensions
 
     for f in request.fulfillments:
         pipe_id = f.get("pipe_id")
@@ -422,4 +741,5 @@ async def execute_order(request: ExecuteOrderRequest, current_user: dict = Depen
         "summary": summary,
         "fulfillment_detail": fulfillment_detail,
         "order_id": order_record["id"],
+        "analysis": request.analysis if hasattr(request, 'analysis') else [],
     }
