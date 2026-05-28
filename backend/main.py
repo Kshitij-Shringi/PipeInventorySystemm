@@ -8,6 +8,7 @@ from database import get_legacy_single_tenant_database, get_control_database, IN
 from routes import inventory, orders
 from routes import auth as auth_routes
 from routes import admin as admin_routes
+from routes import products as products_routes
 from security import hash_password
 
 
@@ -47,21 +48,47 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
+_DEFAULT_CORS_ORIGINS = ",".join(
+    [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "https://pinventory.pedalsupclients.xyz",
+    ]
+)
+# Empty CORS_ORIGINS in hosting env overrides os.getenv default — treat as unset.
+_cors_origins_env = (os.getenv("CORS_ORIGINS") or "").strip() or _DEFAULT_CORS_ORIGINS
 allowed_origins = [
-    origin.strip()
-    for origin in os.getenv("CORS_ORIGINS", "http://localhost:5173").split(",")
+    origin.strip().rstrip("/")
+    for origin in _cors_origins_env.split(",")
     if origin.strip()
 ]
+
+# Optional regex, e.g. all HTTPS pedalsup client subdomains (frontend on another host).
+_cors_origin_regex = (os.getenv("CORS_ORIGIN_REGEX") or "").strip() or None
+if _cors_origin_regex is None and os.getenv("CORS_PEDALSUP_SUBDOMAINS", "true").lower() in (
+    "1",
+    "true",
+    "yes",
+):
+    _cors_origin_regex = r"https://[\w-]+\.pedalsupclients\.xyz"
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
+    allow_origin_regex=_cors_origin_regex,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+print("[CORS] Configuration loaded on startup")
+print(f"[CORS] CORS_ORIGINS effective: {_cors_origins_env!r}")
+print(f"[CORS] Allowed origins ({len(allowed_origins)}): {allowed_origins}")
+print(f"[CORS] allow_origin_regex: {_cors_origin_regex!r}")
+print("[CORS] allow_credentials=True | allow_methods=* | allow_headers=*")
+
 app.include_router(auth_routes.router, prefix="/api")
 app.include_router(admin_routes.router, prefix="/api")
 app.include_router(inventory.router, prefix="/api")
 app.include_router(orders.router, prefix="/api")
+app.include_router(products_routes.router, prefix="/api")

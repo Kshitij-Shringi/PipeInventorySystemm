@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Optional
 
 from pydantic import BaseModel, EmailStr, Field
 
@@ -46,13 +47,13 @@ class ExecuteOrderRequest(BaseModel):
 class Tenant(BaseModel):
     name: str
     slug: str = Field(..., description="URL-friendly identifier for the tenant")
-    created_at: datetime | None = None
-    plan: str | None = Field(default=None, description="Optional plan identifier")
+    created_at: Optional[datetime] = None
+    plan: Optional[str] = Field(default=None, description="Optional plan identifier")
 
 
 class User(BaseModel):
     email: EmailStr
-    full_name: str | None = None
+    full_name: Optional[str] = None
     hashed_password: str
     tenant_id: str
     role: str = Field(default="owner", description='Role within the tenant, e.g. "owner" or "member"')
@@ -65,5 +66,5 @@ class Token(BaseModel):
 
 
 class TokenPayload(BaseModel):
-    sub: str | None = None
-    tenant_id: str | None = None
+    sub: Optional[str] = None
+    tenant_id: Optional[str] = None

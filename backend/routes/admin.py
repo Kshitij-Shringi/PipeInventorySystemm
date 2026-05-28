@@ -1,4 +1,5 @@
 import re
+from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from bson import ObjectId
 
@@ -418,7 +419,7 @@ async def create_tenant_user(tenant_id: str, payload: TenantUserCreate):
 
 
 @router.get("/tenant-requests")
-async def list_tenant_requests(status_filter: str | None = "pending"):
+async def list_tenant_requests(status_filter: Optional[str] = "pending"):
     """List tenant requests. Default: only pending. Use status_filter=all for all."""
     control_db = get_control_database()
     query = {} if status_filter == "all" else {"status": "pending"}

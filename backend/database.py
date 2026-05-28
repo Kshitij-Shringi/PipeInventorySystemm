@@ -1,4 +1,5 @@
 import os
+from typing import Optional
 
 from dotenv import load_dotenv
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -17,7 +18,7 @@ ORDERS_COLLECTION = "orders"
 STOCK_ACTIVITY_COLLECTION = "stock_activity"
 
 
-client: AsyncIOMotorClient | None = None
+client: Optional[AsyncIOMotorClient] = None
 
 
 def _get_client() -> AsyncIOMotorClient:
@@ -37,7 +38,7 @@ def get_control_database():
     return _get_client()[CONTROL_DB_NAME]
 
 
-def get_tenant_database(db_name: str | None = None):
+def get_tenant_database(db_name: Optional[str] = None):
     """
     Return a tenant-specific database.
 
