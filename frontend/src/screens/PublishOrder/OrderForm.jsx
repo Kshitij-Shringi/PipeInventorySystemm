@@ -3,6 +3,7 @@ import { Plus, Trash2, FileSearch, ClipboardCheck, Truck, Upload, FileDown, List
 import { motion, AnimatePresence } from 'framer-motion';
 import { useToast } from '../../components/Toast';
 import { downloadCsv, normalizeObjectKeys, parseCsvToObjects, readFileText } from '../../utils/csv';
+import { fetchProducts } from '../../api';
 
 const STORAGE_KEY = 'orderForm_formData';
 const emptyReq = () => ({
@@ -14,6 +15,28 @@ const emptyReq = () => ({
 
 export default function OrderForm({ onAnalyse }) {
   const { showToast } = useToast();
+  const [products, setProducts] = useState([]);
+
+  useEffect(() => {
+    fetchProducts().then(setProducts).catch(() => {});
+  }, []);
+
+  const applyProduct = (idx, productId) => {
+    const product = products.find((p) => p.id === productId);
+    if (!product) return;
+    setRows((prev) =>
+      prev.map((row, i) =>
+        i === idx
+          ? {
+              ...row,
+              width: String(product.width),
+              height: String(product.height),
+              ...(product.length ? { length: String(product.length) } : {}),
+            }
+          : row
+      )
+    );
+  };
 
   const loadSavedData = () => {
     try {
@@ -391,6 +414,7 @@ export default function OrderForm({ onAnalyse }) {
                         className="h-4 w-4"
                       />
                     </th>
+                    {products.length > 0 && <th className="table-th text-left">Product</th>}
                     <th className="table-th text-left">Height</th>
                     <th className="table-th text-left">Width</th>
                     <th className="table-th text-left">Length</th>
@@ -418,6 +442,22 @@ export default function OrderForm({ onAnalyse }) {
                             className="h-4 w-4"
                           />
                         </td>
+                        {products.length > 0 && (
+                          <td className="table-td text-left">
+                            <select
+                              defaultValue=""
+                              onChange={(e) => applyProduct(idx, e.target.value)}
+                              className="w-36 px-3 py-2 rounded-md bg-[#05060b] border border-border/60 text-xs text-white focus:outline-none focus:ring-1 focus:ring-accent/70"
+                            >
+                              <option value="" disabled>— select —</option>
+                              {products.map((p) => (
+                                <option key={p.id} value={p.id}>
+                                  {p.name} ({p.width}×{p.height})
+                                </option>
+                              ))}
+                            </select>
+                          </td>
+                        )}
                     <td className="table-td text-left">
                       <input
                         type="number"

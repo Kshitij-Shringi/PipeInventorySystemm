@@ -1,6 +1,6 @@
 import React from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
-import { Package, PlusCircle, FileText, ClipboardList, LogOut, Users, Settings } from 'lucide-react';
+import { Package, PlusCircle, FileText, ClipboardList, LogOut, Users, Settings, Boxes } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useAuth } from '../AuthContext';
 
@@ -9,6 +9,7 @@ const baseTabs = [
   { id: 'add', path: '/add-stock', label: 'Add Stock', icon: PlusCircle },
   { id: 'order', path: '/publish-order', label: 'Publish Order', icon: FileText },
   { id: 'orders', path: '/orders', label: 'Activity Ledger', icon: ClipboardList },
+  { id: 'products', path: '/products', label: 'Products', icon: Boxes },
 ];
 
 function TabButton({ path, label, Icon }) {

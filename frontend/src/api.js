@@ -324,3 +324,24 @@ export async function adminResetUserPassword(tenantId, userId, newPassword) {
   });
   return data;
 }
+
+// Products
+export async function fetchProducts() {
+  const { data } = await api.get('/products');
+  return data;
+}
+
+export async function createProduct({ name, width, height, length }) {
+  const { data } = await api.post('/products', { name, width, height, length });
+  return data;
+}
+
+export async function updateProduct(id, { name, width, height, length }) {
+  const { data } = await api.put(`/products/${id}`, { name, width, height, length });
+  return data;
+}
+
+export async function deleteProduct(id) {
+  const { data } = await api.delete(`/products/${id}`);
+  return data;
+}
